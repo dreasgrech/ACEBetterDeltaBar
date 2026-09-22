@@ -23,7 +23,7 @@ def read(path):
 
 class Tests(AppTests):
     ROOT = ROOT
-    MIN_CASES = 26
+    MIN_CASES = 29
     HOT_PATH = ("// ---- rendering", "// ---- lifecycle")
 
 
@@ -63,7 +63,7 @@ class WidgetContractTests(unittest.TestCase):
     def test_every_class_the_script_writes_is_in_the_stylesheet(self):
         for cls in ("bd-gain", "bd-lose", "bd-flat", "bd-strong", "bd-faster", "bd-slower", "bd-noref", "bd-invalid",
                     "bd-hasdriver", "bd-top-on", "bd-pred-faster", "bd-pred-slower", "bd-compact", "bd-faster-left", "bd-noarrows", "bd-nooptimal",
-                    "bd-nobest", "bd-nolast", "bd-nopred", "bd-notrace", "bd-noinvalid", "bd-nodriver", "bd-narrow", "bd-wide",
+                    "bd-nobest", "bd-nolast", "bd-nopred", "bd-notrace", "bd-noinvalid", "bd-nodriver", "bd-hide-noref", "bd-narrow", "bd-wide",
                     "bd-num-overall", "bd-num-white", "bd-bar-trend", "bd-bg-light", "bd-bg-none"):
             self.assertIn("." + cls, self.css, cls)
 

@@ -103,6 +103,11 @@ body.hide-hud .ace-betterdeltabar {
     visibility: hidden;
 }
 
+/* the option to show nothing until there is a delta: the whole widget, whatever the layout */
+.ace-betterdeltabar.bd-hide-noref.bd-noref {
+    visibility: hidden;
+}
+
 /* ---- top line: who the delta is against, no reference, invalid ---------------------- */
 
 /* only there while it has something to say (.bd-top-on), so the bar sits at the top otherwise */
@@ -135,11 +140,13 @@ body.hide-hud .ace-betterdeltabar {
     color: #fff;
 }
 
+/* the lap counts in the line, so its figures come from the tabular face and do not jitter */
 .ace-betterdeltabar.bd-noref .bd-status {
     display: block;
     font-weight: 500;
     letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.55);
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
 }
 
 /* a quiet outlined tag, not a solid red block: an invalid lap is information, not an alarm */

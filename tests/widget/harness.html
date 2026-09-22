@@ -102,9 +102,19 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.npos = 0; setDelta(null);
     });
 
+    // the game's engine, as far as the widget uses it: a place to subscribe to UI notifications
+    const engineHandlers = {};
+    window.engine = {
+        on: function (name, cb) { engineHandlers[name] = cb; return { clear: function () { delete engineHandlers[name]; } }; },
+        trigger: function () {}
+    };
+    const notify = function (message) { engineHandlers.UINotification(message); };
+    const penalty = function (head, reason, type) { return { type: "UINotificationType_SessionPenalty", tuples: [{ values: [head, reason, type] }] }; };
+    window.ModelUIRealtimeLeaderboard = { lines: [{ focused: false, car_number: 12 }, { focused: true, car_number: 666 }] };
+
     const root = document.createElement("div");
     center.appendChild(root);
-    const state = B.attach(root);
+    let state = B.attach(root);
     const q = function (s) { return root.querySelector(s); };
     const figure = q(".bd-delta"), left = q(".bd-left"), right = q(".bd-right"), tick = q(".bd-ticktrack"), main = q(".bd-main");
     const ups = Array.prototype.slice.call(root.querySelectorAll(".bd-up"));
@@ -130,13 +140,28 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ups.forEach(function (u) { eq(u.style.transform, "scaleY(0)", "trace blank"); });
     });
 
-    t("no reference lap: dim placeholder, empty bar, tick hidden, the note on the top line", function () {
+    t("no reference lap: dim placeholder, empty bar, tick hidden, the top line counts the lap so the widget is visibly alive", function () {
         frame();
         ok(has(root, "bd-noref"), "bd-noref"); ok(has(root, "bd-top-on"), "top line shows the note");
         eq(figure.textContent, "--.---"); eq(sx(left), 0); eq(sx(right), 0); eq(tx(tick), 0, "tick at the centre");
         ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "no sign");
         eq(getComputedStyle(q(".bd-status")).display, "block", "the note is visible");
+        eq(q(".bd-status").textContent, "no reference yet · lap 0:05.0", "the running lap, to the tenth (lap time 5000 ms)");
+        car.current_lap_time_ms = 65432; frame(); eq(q(".bd-status").textContent, "no reference yet · lap 1:05.4", "ticking");
+        car.current_lap_time_ms = 0; frame(); eq(q(".bd-status").textContent, "no reference lap", "no lap running: the plain note");
+        car.current_lap_time_ms = 5000; frame();
         eq(getComputedStyle(q(".bd-tick")).opacity, "0", "tick hidden");
+        eq(getComputedStyle(root).visibility, "hidden", "(the panel keeps it hidden until positioned)");
+    });
+
+    t("the option to hide the widget until there is a reference lap", function () {
+        root.style.visibility = "";
+        eq(getComputedStyle(root).visibility, "visible", "shown by default with no reference");
+        set("hideWithoutReference", true); ok(has(root, "bd-hide-noref"));
+        eq(getComputedStyle(root).visibility, "hidden", "hidden while there is no reference");
+        setDelta(-235); frame(); eq(getComputedStyle(root).visibility, "visible", "shown as soon as there is a delta");
+        setDelta(null); frame(); eq(getComputedStyle(root).visibility, "hidden", "and gone again without one");
+        set("hideWithoutReference", false); eq(getComputedStyle(root).visibility, "visible");
     });
 
     t("time gained grows right (the game's convention): the right fill, the tick at its end, the figure, the sign", function () {
@@ -253,14 +278,46 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         timing.ideal = ""; timing.last = "";
     });
 
-    t("an invalid lap shows the tag on the top line, but not on the outlap, which the game flags before any lap is timed", function () {
-        timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "outlap: no tag"); ok(!has(root, "bd-top-on"));
-        timing.current = "0:12.345"; frame(); ok(has(root, "bd-invalid"), "a timed lap: the tag"); ok(has(root, "bd-top-on"));
+    t("the invalid tag: a lap that was valid and went invalid is a cut and shows it; one flagged from its start is a pit exit and does not", function () {
+        // the lap under way started valid (the flag has been down since the harness began)
+        timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "the game's outlap text: no tag"); ok(!has(root, "bd-top-on"));
+        timing.current = "0:12.345"; frame(); ok(has(root, "bd-invalid"), "a timed lap that went invalid: the tag"); ok(has(root, "bd-top-on"));
         eq(getComputedStyle(q(".bd-invalid-tag")).display, "block");
         const kept = car.delta_time_ms;
-        setDelta(null); frame(); ok(!has(root, "bd-invalid"), "no reference lap: no tag either, whatever the flag says");
-        setDelta(kept); frame(); ok(has(root, "bd-invalid"), "back with the reference");
+        setDelta(null); frame(); ok(has(root, "bd-invalid"), "with no reference lap too: a cut on your first lap is still a cut");
+        setDelta(kept); frame();
+        // a new lap begins with the flag still up: a pit exit, not a cut
+        car.current_lap_time_ms = 100; frame(); ok(!has(root, "bd-invalid"), "flagged from the start: no tag");
+        run(600); ok(!has(root, "bd-invalid"), "and none later in that lap either");
+        // the next lap starts clean, the game clears the flag a moment after the line, then a cut
+        car.current_lap_time_ms = 50; frame(); car.current_lap_time_ms = 200; timing.invalid = false; frame();
+        ok(!has(root, "bd-invalid"), "clean lap: no tag");
+        car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "cut mid-lap: the tag");
         timing.invalid = false; frame(); ok(!has(root, "bd-invalid")); ok(!has(root, "bd-top-on"));
+    });
+
+    t("the game's lap-invalidated notification shows the tag even when the flag was up from the start, for our car only, until the lap ends", function () {
+        ok(engineHandlers.UINotification, "subscribed to UI notifications at attach");
+        // a pit exit: flagged from the start, no tag
+        car.current_lap_time_ms = 100; timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "flagged from the start: no tag");
+        notify({ type: "UINotificationType_Car", tuples: [{ values: ["whatever"] }] }); frame(); ok(!has(root, "bd-invalid"), "another kind of notification: nothing");
+        notify(penalty("{PENALTY_CLEARED_KEY} #12", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame();
+        ok(!has(root, "bd-invalid"), "another car's invalidation: nothing");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "PenaltyReason_Collision", "PenaltyType_Drive_Through")); frame();
+        ok(!has(root, "bd-invalid"), "a penalty that is not an invalidation: nothing");
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame();
+        ok(has(root, "bd-invalid"), "our lap invalidated, as the game announced it in practice: the tag"); eq(state.lapCut, true);
+        run(2000); ok(has(root, "bd-invalid"), "and it stays for the lap");
+        car.current_lap_time_ms = 50; frame(); ok(!has(root, "bd-invalid"), "gone with the new lap"); eq(state.lapCut, false);
+        // with no leaderboard to say which car is ours, any car's invalidation counts (single player)
+        window.ModelUIRealtimeLeaderboard = null;
+        notify(penalty("{PENALTY_CLEARED_KEY} #12", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"), "unknown own number: taken as ours");
+        window.ModelUIRealtimeLeaderboard = { lines: [{ focused: true, car_number: 666 }] };
+        const p = B.readPenalty(penalty("{PENALTY_CLEARED_KEY} #666", "r", "t")); eq(p.car, 666); eq(p.reason, "r"); eq(p.type, "t");
+        eq(B.readPenalty(penalty("no number here", "r", "t")).car, null); eq(B.readPenalty({ type: "x" }), null); eq(B.readPenalty(null), null);
+        // a fresh, clean lap for the tests that follow
+        timing.invalid = false; car.current_lap_time_ms = 10; frame(); ok(!has(root, "bd-invalid"), "new lap, clean");
+        car.current_lap_time_ms = 200; frame();
     });
 
     t("a delta against another driver names them", function () {
@@ -314,7 +371,8 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         set("showOptimal", false); ok(has(root, "bd-nooptimal")); eq(getComputedStyle(q(".bd-cell-optimal")).display, "none");
         set("showLast", true); ok(!has(root, "bd-nolast")); eq(getComputedStyle(q(".bd-cell-last")).display, "flex", "last cell shown");
         set("showLast", false); set("showBest", false); set("showPredicted", false); eq(getComputedStyle(q(".bd-cells")).display, "none", "no cell row when every cell is off");
-        set("showInvalid", false); timing.invalid = true; timing.current = "0:12.345"; frame(); ok(!has(root, "bd-invalid"), "invalid ignored when off"); timing.invalid = false;
+        set("showInvalid", false); timing.invalid = true; timing.current = "0:12.345"; frame(); ok(!has(root, "bd-invalid"), "invalid ignored when off");
+        set("showInvalid", true); frame(); ok(has(root, "bd-invalid"), "(and back on, the cut shows: the lap started valid)"); set("showInvalid", false); timing.invalid = false;
         set("showDriver", false); car.delta_time_drivername = "Max"; frame(); ok(!has(root, "bd-hasdriver"), "driver ignored when off"); car.delta_time_drivername = "";
         set("trendBand", "coarse"); eq(state.band, 40); set("trendWindow", "0.5 s"); eq(state.windowSamples, 10); eq(state.windowMs, 500);
         set("background", "none"); ok(has(root, "bd-bg-none"));
@@ -329,6 +387,27 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         figure.textContent = "sentinel"; drift(500, -40);
         eq(figure.textContent, "sentinel", "no writes while hidden"); ok(state.count > before, "sampled: " + state.count);
         document.body.classList.remove(ACEUIAppLoader.HUD_HIDDEN_CLASS); frame(); ok(figure.textContent !== "sentinel", "drawn again");
+    });
+
+    t("a cut survives the HUD reload on Escape/resume: remembered by lap, restored on the same lap, forgotten on the next", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.current_lap_time_ms = 20000; frame(); eq(state.lapCount, 3, "the lap count is read");
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"), "cut");
+        eq(me.recall("cut", null).lap, 3, "remembered with its lap");
+        // Escape and resume: the page is rebuilt, the widget attached afresh, the flag still up from the pits
+        B.detach(state); root.classList.remove("bd-invalid"); timing.invalid = true;
+        car.current_lap_time_ms = 25000; state = B.attach(root); frame();
+        ok(has(root, "bd-invalid"), "the cut is back on the first frame"); eq(state.lapCut, true);
+        // the next lap: forgotten
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 100; frame();
+        ok(!has(root, "bd-invalid"), "new lap, no tag"); eq(me.recall("cut", null), null, "and nothing remembered");
+        // a reload onto a different lap than the one remembered: forgotten too
+        me.remember("cut", { lap: 2, at: 1000 }); B.detach(state); state = B.attach(root); frame();
+        ok(!has(root, "bd-invalid"), "a remembered cut from another lap is dropped"); eq(me.recall("cut", null), null);
+        // without a lap count, the lap time and the flag decide: still running and still flagged is the same lap
+        car.low_frequency = undefined; notify(penalty("{PENALTY_CLEARED_KEY} #666", "r", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"));
+        B.detach(state); car.current_lap_time_ms = 500; state = B.attach(root); frame(); ok(has(root, "bd-invalid"), "later in the lap, flag up: kept");
+        B.detach(state); car.current_lap_time_ms = 50; state = B.attach(root); frame(); ok(!has(root, "bd-invalid"), "lap time wrapped: a new lap, dropped");
+        timing.invalid = false; car.current_lap_time_ms = 200; frame();
     });
 
     t("attract mode scripts a lap: a net gain by the line, a position that sweeps the lap, laps to compare with", function () {
@@ -346,6 +425,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         const cancelled = clock.cancelled;
         B.detach(state);
         eq(clock.cancelled, cancelled + 1, "frame cancelled"); eq(state.ui.loop.running, false); eq(state.unsubscribeSettings, null); eq(state.scaler, null);
+        eq(engineHandlers.UINotification, undefined, "the notification subscription is cleared"); eq(state.notifications, null);
         set("decimals", "2"); ACEUIAppLoader.settings.reset(me.name);
         eq(B.attract(true), false, "no live widget to toggle");
     });
