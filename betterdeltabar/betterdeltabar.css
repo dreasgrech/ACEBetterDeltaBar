@@ -6,8 +6,13 @@
  * figures that must not jitter as they change, the pair the stock timers use). The two
  * colours are the stock delta bar's own: #44EA78 for time gained, #FF1418 for time lost.
  *
- * The look follows the stock HUD widgets: a dark translucent panel with a hairline
- * border and a soft shadow, small radii, dim uppercase labels with bright figures.
+ * Two layouts, one markup. FULL (the default) is a broadcast-style block: a near-opaque
+ * panel with hard corners, the figure sitting on the bar with the fill fading in behind
+ * it from the centre to a bright tick at its end, and a row of lap-time cells under it,
+ * each with a colour tab at its left edge. COMPACT (.bd-compact on the root) is the
+ * iRacing shape: no panel, a thin rounded bar with a solid fill, and the figure in a
+ * small dark tag under the bar, which the script moves to the fill's end when the
+ * "follows the fill" option is on. The cells and the trace are hidden in compact.
  *
  * Scaling: every length inside the panel is in em, relative to the root's font-size,
  * which the loader's me.scale sets from the Panel scale option. The default position
@@ -17,11 +22,16 @@
  *   per frame     .bd-gain / .bd-lose / .bd-flat (the trend), .bd-strong (a fast trend),
  *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
  *                 .bd-invalid, .bd-hasdriver, .bd-top-on (the top line has something to say);
- *                 .bd-pred-faster / .bd-pred-slower on the predicted item
- *   options       .bd-noarrows .bd-nopred .bd-nobest .bd-notrace .bd-noinvalid .bd-nodriver,
- *                 .bd-narrow / .bd-wide, .bd-num-overall / .bd-num-white (what colours the
- *                 figure; the default is the trend), .bd-bar-trend (the bar takes the trend's
- *                 colour instead of its side's), .bd-bg-light / .bd-bg-none
+ *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
+ *   options       .bd-compact; .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
+ *                 .bd-notrace .bd-noinvalid .bd-nodriver; .bd-narrow / .bd-wide;
+ *                 .bd-num-overall / .bd-num-white (what colours the figure; the default is the
+ *                 trend); .bd-bar-trend (the fill takes the trend's colour instead of the
+ *                 sign's); .bd-bg-light / .bd-bg-none
+ *
+ * Which side the fill grows on is the script's business (the "Faster side" option): the
+ * stylesheet colours whichever fill is showing by the overall sign, so both halves carry
+ * both colours.
  *
  * Cohtml notes: no var() fallbacks (unsupported); flex, box-shadow, text-shadow and
  * linear-gradient are all used by the stock stylesheets, so they render; the chevrons are
@@ -32,15 +42,15 @@
 
 .ace-betterdeltabar {
     position: absolute;
-    left: 39%;
-    top: 9%;
-    width: 22em;
+    left: 34%;
+    top: 8%;
+    width: 32em;
     display: block;
-    background: linear-gradient(rgba(22, 24, 28, 0.74), rgba(8, 9, 11, 0.80));
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 0.3em;
+    background: rgba(6, 7, 8, 0.86);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
     box-shadow: 0 0.25em 1em rgba(0, 0, 0, 0.35);
-    padding: 0.3em 0.6em 0.4em 0.6em;
+    padding: 0;
     color: #fff;
     font-family: var(--font-family-main);
     font-size: 1rem;
@@ -48,18 +58,18 @@
 }
 
 .ace-betterdeltabar.bd-narrow {
-    width: 17em;
+    width: 26em;
 }
 
 .ace-betterdeltabar.bd-wide {
-    width: 28em;
+    width: 40em;
 }
 
 /* ---- options: background and what is hidden ------------------------------------- */
 
 .ace-betterdeltabar.bd-bg-light {
-    background: rgba(0, 0, 0, 0.32);
-    border-color: rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.45);
+    border-color: rgba(255, 255, 255, 0.06);
     box-shadow: none;
 }
 
@@ -75,9 +85,11 @@
 }
 
 .ace-betterdeltabar.bd-noarrows .bd-arrow,
-.ace-betterdeltabar.bd-nopred .bd-pred,
-.ace-betterdeltabar.bd-nobest .bd-best,
-.ace-betterdeltabar.bd-nopred.bd-nobest .bd-info,
+.ace-betterdeltabar.bd-nooptimal .bd-cell-optimal,
+.ace-betterdeltabar.bd-nobest .bd-cell-best,
+.ace-betterdeltabar.bd-nolast .bd-cell-last,
+.ace-betterdeltabar.bd-nopred .bd-cell-pred,
+.ace-betterdeltabar.bd-nooptimal.bd-nobest.bd-nolast.bd-nopred .bd-cells,
 .ace-betterdeltabar.bd-notrace .bd-trace,
 .ace-betterdeltabar.bd-noinvalid .bd-invalid-tag,
 .ace-betterdeltabar.bd-nodriver .bd-vs {
@@ -98,8 +110,8 @@ body.hide-hud .ace-betterdeltabar {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    height: 1.3em;
-    margin-bottom: 0.15em;
+    height: 1.4em;
+    padding: 0 0.85em;
     font-size: 0.7em;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -133,24 +145,27 @@ body.hide-hud .ace-betterdeltabar {
     display: block;
     margin-left: auto;
     padding: 0 0.6em;
-    border-radius: 0.2em;
     background: #ff1418;
     color: #fff;
     font-weight: 700;
     line-height: 1.5em;
 }
 
-/* the note about no reference needs no room when the top line is otherwise empty; the
-   .bd-nodriver / .bd-noinvalid options above still hide their items when the line shows */
+/* ---- the bar and the figure ----------------------------------------------------------- */
 
-/* ---- the bar: the overall delta, faster grows left, slower grows right ----------------- */
+/* the bar fills the stack; the figure is laid over it (full) or under it (compact) */
+.ace-betterdeltabar .bd-stack {
+    position: relative;
+    height: 2em;
+}
 
 .ace-betterdeltabar .bd-bar {
-    position: relative;
-    height: 0.55em;
-    margin: 0.15em 0 0.2em 0;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 0.15em;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.04);
     overflow: hidden;
 }
 
@@ -165,59 +180,112 @@ body.hide-hud .ace-betterdeltabar {
 .ace-betterdeltabar .bd-left {
     right: 50%;
     transform-origin: 100% 50%;
-    background: linear-gradient(to left, #44ea78 0%, #44ea78 60%, rgba(68, 234, 120, 0.35) 100%);
 }
 
 .ace-betterdeltabar .bd-right {
     left: 50%;
     transform-origin: 0 50%;
-    background: linear-gradient(to right, #ff1418 0%, #ff1418 60%, rgba(255, 20, 24, 0.35) 100%);
 }
 
+/* the fill fades in from the centre to its end, in the colour of the overall sign */
+.ace-betterdeltabar.bd-faster .bd-right {
+    background: linear-gradient(to right, rgba(68, 234, 120, 0.05) 0%, rgba(68, 234, 120, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-faster .bd-left {
+    background: linear-gradient(to left, rgba(68, 234, 120, 0.05) 0%, rgba(68, 234, 120, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-slower .bd-right {
+    background: linear-gradient(to right, rgba(255, 20, 24, 0.05) 0%, rgba(255, 20, 24, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-slower .bd-left {
+    background: linear-gradient(to left, rgba(255, 20, 24, 0.05) 0%, rgba(255, 20, 24, 0.75) 100%);
+}
+
+/* the fill coloured by the trend instead of by the sign */
+.ace-betterdeltabar.bd-bar-trend .bd-right {
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.55) 100%);
+}
+
+.ace-betterdeltabar.bd-bar-trend .bd-left {
+    background: linear-gradient(to left, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.55) 100%);
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-right {
+    background: linear-gradient(to right, rgba(68, 234, 120, 0.05) 0%, rgba(68, 234, 120, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-left {
+    background: linear-gradient(to left, rgba(68, 234, 120, 0.05) 0%, rgba(68, 234, 120, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-right {
+    background: linear-gradient(to right, rgba(255, 20, 24, 0.05) 0%, rgba(255, 20, 24, 0.75) 100%);
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-left {
+    background: linear-gradient(to left, rgba(255, 20, 24, 0.05) 0%, rgba(255, 20, 24, 0.75) 100%);
+}
+
+/* a faint centre line */
 .ace-betterdeltabar .bd-mid {
     position: absolute;
     top: 0;
     bottom: 0;
     left: 50%;
-    width: 2px;
-    margin-left: -1px;
-    background: rgba(255, 255, 255, 0.75);
+    width: 1px;
+    background: rgba(255, 255, 255, 0.12);
 }
 
-/* the bar coloured by the trend instead of by its side */
-.ace-betterdeltabar.bd-bar-trend .bd-left,
-.ace-betterdeltabar.bd-bar-trend .bd-right {
-    background: rgba(255, 255, 255, 0.55);
+/* the bright tick at the fill's end: a full-width track the script moves by the fill's share */
+.ace-betterdeltabar .bd-ticktrack {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    transform: translateX(0%);
 }
 
-.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-left,
-.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-right {
-    background: #44ea78;
+.ace-betterdeltabar .bd-tick {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 0.15em;
+    margin-left: -0.075em;
+    background: rgba(255, 255, 255, 0.9);
 }
 
-.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-left,
-.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-right {
-    background: #ff1418;
+.ace-betterdeltabar.bd-noref .bd-tick {
+    opacity: 0;
 }
 
-/* ---- the figure, coloured by the trend, with a chevron on the side the time is going ---- */
-
+/* the figure and its chevrons, centred on the bar */
 .ace-betterdeltabar .bd-main {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    height: 2.2em;
+    transform: translateX(0%);
 }
 
 .ace-betterdeltabar .bd-delta {
-    min-width: 5em;
+    min-width: 4.5em;
     text-align: center;
     color: rgba(255, 255, 255, 0.92);
     font-family: rajdhani-numerals-mono, var(--font-family-main);
-    font-size: 2em;
+    font-size: 1.45em;
     font-weight: 700;
     line-height: 1em;
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
 }
 
 .ace-betterdeltabar.bd-gain .bd-delta {
@@ -229,11 +297,11 @@ body.hide-hud .ace-betterdeltabar {
 }
 
 .ace-betterdeltabar.bd-strong.bd-gain .bd-delta {
-    text-shadow: 0 0 0.35em rgba(68, 234, 120, 0.75);
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8), 0 0 0.4em rgba(68, 234, 120, 0.7);
 }
 
 .ace-betterdeltabar.bd-strong.bd-lose .bd-delta {
-    text-shadow: 0 0 0.35em rgba(255, 20, 24, 0.75);
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8), 0 0 0.4em rgba(255, 20, 24, 0.7);
 }
 
 /* the figure coloured by the overall sign instead (the stock's rule), or not at all: these
@@ -241,7 +309,7 @@ body.hide-hud .ace-betterdeltabar {
 .ace-betterdeltabar.bd-num-overall .bd-delta,
 .ace-betterdeltabar.bd-num-white .bd-delta {
     color: rgba(255, 255, 255, 0.92);
-    text-shadow: none;
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
 }
 
 .ace-betterdeltabar.bd-num-overall.bd-faster .bd-delta {
@@ -263,18 +331,18 @@ body.hide-hud .ace-betterdeltabar {
 .ace-betterdeltabar .bd-arrow {
     width: 0;
     height: 0;
-    margin: 0 0.6em;
-    border-top: 0.5em solid transparent;
-    border-bottom: 0.5em solid transparent;
+    margin: 0 0.5em;
+    border-top: 0.4em solid transparent;
+    border-bottom: 0.4em solid transparent;
     opacity: 0;
 }
 
 .ace-betterdeltabar .bd-arrow-l {
-    border-right: 0.65em solid #44ea78;
+    border-right: 0.5em solid #44ea78;
 }
 
 .ace-betterdeltabar .bd-arrow-r {
-    border-left: 0.65em solid #ff1418;
+    border-left: 0.5em solid #ff1418;
 }
 
 .ace-betterdeltabar.bd-gain .bd-arrow-l,
@@ -291,10 +359,9 @@ body.hide-hud .ace-betterdeltabar {
 
 .ace-betterdeltabar .bd-trace {
     position: relative;
-    height: 2.4em;
-    margin: 0.05em 0 0.3em 0;
-    background: rgba(255, 255, 255, 0.035);
-    border-radius: 0.15em;
+    height: 2.2em;
+    background: rgba(255, 255, 255, 0.03);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
     overflow: hidden;
 }
 
@@ -336,36 +403,156 @@ body.hide-hud .ace-betterdeltabar {
     background: #ff1418;
 }
 
-/* ---- predicted and best lap ---------------------------------------------------------- */
+/* ---- the lap-time cells: session optimal, session best, last lap, predicted lap -------- */
 
-.ace-betterdeltabar .bd-info {
+.ace-betterdeltabar .bd-cells {
     display: flex;
     flex-direction: row;
-    justify-content: center;
-    font-size: 0.7em;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.62);
+    border-top: 1px solid rgba(255, 255, 255, 0.10);
 }
 
-.ace-betterdeltabar .bd-item {
+/* the time over its label, both flush right; a colour tab at the left edge, a hairline at the right */
+.ace-betterdeltabar .bd-cell {
+    flex: 1 1 0;
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    margin: 0 0.9em;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 0.3em 0.7em 0.35em 0.5em;
+    border-left: 0.3em solid transparent;
+    border-right: 1px solid rgba(255, 255, 255, 0.10);
+    overflow: hidden;
 }
 
-.ace-betterdeltabar .bd-val {
-    margin-left: 0.4em;
+.ace-betterdeltabar .bd-time {
     color: #fff;
-    font-weight: 700;
     font-family: rajdhani-numerals-mono, var(--font-family-main);
+    font-size: 1.25em;
+    font-weight: 700;
+    line-height: 1.05em;
+    white-space: nowrap;
 }
 
-.ace-betterdeltabar .bd-pred.bd-pred-faster .bd-val {
+.ace-betterdeltabar .bd-label {
+    margin-top: 0.1em;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.55em;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+}
+
+.ace-betterdeltabar .bd-cell-optimal {
+    border-left-color: #e8b832;
+}
+
+.ace-betterdeltabar .bd-cell-best {
+    border-left-color: #ce00ff;
+}
+
+.ace-betterdeltabar .bd-cell-last {
+    border-left-color: rgba(255, 255, 255, 0.55);
+}
+
+.ace-betterdeltabar .bd-cell-pred {
+    border-left-color: rgba(255, 255, 255, 0.2);
+}
+
+.ace-betterdeltabar .bd-cell-pred.bd-pred-faster {
+    border-left-color: #44ea78;
+}
+
+.ace-betterdeltabar .bd-cell-pred.bd-pred-faster .bd-time {
     color: #44ea78;
 }
 
-.ace-betterdeltabar .bd-pred.bd-pred-slower .bd-val {
+.ace-betterdeltabar .bd-cell-pred.bd-pred-slower {
+    border-left-color: #ff1418;
+}
+
+.ace-betterdeltabar .bd-cell-pred.bd-pred-slower .bd-time {
     color: #ff1418;
+}
+
+/* ---- compact: a thin bar with the figure in a tag under it ------------------------------ */
+
+.ace-betterdeltabar.bd-compact {
+    width: 28em;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.ace-betterdeltabar.bd-compact.bd-narrow {
+    width: 22em;
+}
+
+.ace-betterdeltabar.bd-compact.bd-wide {
+    width: 36em;
+}
+
+.ace-betterdeltabar.bd-compact .bd-cells,
+.ace-betterdeltabar.bd-compact .bd-trace,
+.ace-betterdeltabar.bd-compact .bd-tick,
+.ace-betterdeltabar.bd-compact .bd-mid {
+    display: none;
+}
+
+.ace-betterdeltabar.bd-compact .bd-top {
+    padding: 0 0.3em;
+}
+
+.ace-betterdeltabar.bd-compact .bd-stack {
+    height: 2.3em;
+}
+
+.ace-betterdeltabar.bd-compact .bd-bar {
+    bottom: auto;
+    height: 0.8em;
+    border-radius: 0.2em;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+/* solid fills, in the sign's colour or the trend's */
+.ace-betterdeltabar.bd-compact.bd-faster .bd-fill,
+.ace-betterdeltabar.bd-compact.bd-bar-trend.bd-gain .bd-fill {
+    background: #44ea78;
+}
+
+.ace-betterdeltabar.bd-compact.bd-slower .bd-fill,
+.ace-betterdeltabar.bd-compact.bd-bar-trend.bd-lose .bd-fill {
+    background: #ff1418;
+}
+
+.ace-betterdeltabar.bd-compact.bd-bar-trend.bd-flat .bd-fill {
+    background: rgba(255, 255, 255, 0.55);
+}
+
+/* the figure under the bar, in a tag; the script moves the whole row to the fill's end when asked */
+.ace-betterdeltabar.bd-compact .bd-main {
+    top: 1.05em;
+    bottom: 0;
+}
+
+.ace-betterdeltabar.bd-compact .bd-delta {
+    min-width: 0;
+    padding: 0 0.35em;
+    background: rgba(0, 0, 0, 0.85);
+    border-radius: 0.15em;
+    font-size: 1.2em;
+    line-height: 1.05em;
+    text-shadow: none;
+}
+
+.ace-betterdeltabar.bd-compact .bd-arrow {
+    margin: 0 0.3em;
+    border-top-width: 0.32em;
+    border-bottom-width: 0.32em;
+}
+
+.ace-betterdeltabar.bd-compact .bd-arrow-l {
+    border-right-width: 0.4em;
+}
+
+.ace-betterdeltabar.bd-compact .bd-arrow-r {
+    border-left-width: 0.4em;
 }

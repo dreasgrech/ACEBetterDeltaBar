@@ -9,7 +9,7 @@
 
 </div>
 
-<p align="center"><img width="440" alt="The Better Delta Bar: the bar shows the lap is up, the number shows time is being lost right now" src="docs/images/widget.png" /></p>
+<p align="center"><img width="640" alt="The Better Delta Bar: the bar shows the lap is up, the number shows time is being lost right now, the lap times underneath" src="docs/images/widget.png" /></p>
 
 The stock delta bar colours its bar **and** its number by the same thing: green while your
 lap as a whole is ahead of the reference, red while it is behind. So a lap that is four
@@ -26,10 +26,16 @@ with a chevron on the side the time is going, brighter when it is going fast. On
 tells you both things: the bar says where the lap stands, the number says which way it is
 heading.
 
-Under it, if you want them: the **predicted lap** coloured against your best, the **best
-lap**, and a **lap trace** that draws the delta across the lap as you drive it, so the
-corner that cost the time is still on the screen at the end of the straight. Drag it
-anywhere on the HUD and it stays there.
+Under the bar, a row of lap times: **session optimal**, **session best** and the
+**predicted lap** coloured against your best (the last lap too, if you want it). Or switch to
+the **compact** layout, a thin bar with the number in a tag that rides the end of the fill,
+the iRacing shape:
+
+<p align="center"><img width="560" alt="The compact layout: a thin bar with the number in a tag under it" src="docs/images/widget-compact.png" /></p>
+
+Either layout can add a **lap trace** that draws the delta across the lap as you drive it,
+so the corner that cost the time is still on the screen at the end of the straight. Drag
+the widget anywhere on the HUD and it stays there.
 
 ---
 
@@ -75,12 +81,14 @@ app drawer with its own switch and an **OPTIONS** button.
 
 | | |
 |---|---|
-| **The bar** | The overall delta for the lap: it grows **left and green** when the lap is ahead of the reference, **right and red** when it is behind. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
+| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round). A bright tick marks the end of the fill. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
 | **The number** | The same delta as a figure, `-0.235` for time gained, `+0.235` for time lost. Its **colour is the trend**: is the number going down (green, you are gaining) or up (red, you are losing) over the last second? White means it is holding. |
-| **The chevrons** | Point the way the time is going, on the side the bar would grow towards. They brighten when the trend is strong. |
-| **The lap trace** | A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
-| **PRED** | The lap time this pace ends in, green when it beats your best, red when it does not. |
-| **BEST** | Your best lap of the session. |
+| **The chevrons** | Point the way the time is going. They brighten when the trend is strong. |
+| **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
+| **SESSION BEST** | Your best lap of the session, with a purple tab. |
+| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best, red when it does not. |
+| **LAST LAP** | Your last lap, off by default. |
+| **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
 | **INVALID** | Appears when the game has invalidated the lap. |
 | **vs Name** | Appears when the delta is against another driver rather than your own lap. |
 
@@ -96,10 +104,16 @@ the stock one does.
 the HUD reload and a restart. Click a section header to fold it. Defaults in bold.
 
 **Layout**
+- *Layout*: **full** (the figure on the bar, the lap times under it) or compact (a thin
+  bar with the figure in a tag under it).
 - *Panel scale*: 0.6 to 2.0 in steps of 0.1, default **1.0**.
 - *Width*: narrow, **normal** or wide.
+- *Faster side*: which way the bar grows for time gained: **right**, as the game's own bar
+  does, or left, as iRacing's does.
 - *Bar range*: the delta that fills the bar (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
+- *Figure follows the fill*: **on**. In the compact layout the tag moves with the end of the
+  bar; off keeps it centred.
 
 **Colour**
 - *Number colour*: **trend** (green while gaining, red while losing, white while steady),
@@ -110,8 +124,9 @@ the HUD reload and a restart. Click a section header to fold it. Defaults in bol
   more before it changes colour.
 
 **Show**
-- *Trend chevrons*, *lap trace*, *predicted lap*, *best lap*, *invalid lap tag*, *driver
-  name*: each **on**.
+- *Trend chevrons*, *session optimal*, *session best*, *predicted lap*, *invalid lap tag*,
+  *driver name*: each **on**. *Lap trace* and *last lap*: **off**. The compact layout shows
+  none of the lap times or the trace.
 
 **Look**
 - *Background*: **dark**, light or none.

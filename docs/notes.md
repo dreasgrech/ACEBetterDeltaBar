@@ -17,11 +17,38 @@ Everything is read from the globals the stock UI mirrors every frame (see
 | `ModelCurrentCar.npos` / `npos_perc` | position along the lap, 0..1 / 0..100 | which slot of the lap trace takes the delta; the trace hides itself when neither is a number |
 | `ModelCurrentCar.delta_time_drivername` | who the delta is against when it is not your own lap | the "vs Name" line |
 | `ModelTiming.best` | the best lap as the game formats it, `""` when none | shown as is; parsed to ms to colour the prediction |
+| `ModelTiming.ideal` / `.last` | the session optimal (best sectors added up) and the last lap, formatted | the other two cells, shown as they come |
 | `ModelTiming.invalid` | the lap is invalid | the INVALID tag |
 
 Positive is time lost, as everywhere in the game. The stock widget clamps the delta to
 +/-1000 ms for its bar width and colours bar and figure by the sign; it colours nothing by
 the trend, which is the gap this widget fills.
+
+**Which way the bar grows differs between sims.** The stock ks-delta anchors its bar at the
+centre with `transform-origin: right` and mirrors it with `scaleX(-1)` for a negative delta,
+so time GAINED grows to the right. iRacing's bar (and SimHub overlays copying it) grows to
+the right for time LOST. The default here is the game's; the "Faster side" option is the
+other. The script owns the side (it decides which fill takes the share and signs the tick's
+shift); the stylesheet only colours whichever fill shows by the sign, so both halves carry
+both colours.
+
+## Two layouts, one markup
+
+The full layout is a broadcast-style block: a near-opaque panel with hard corners, the
+figure laid over the bar, the fill fading in from the centre to a bright tick at its end,
+and a row of lap-time cells with a colour tab each (gold optimal, purple best -- the stock
+lap-time widget's own best-lap purple -- white last, and the prediction's tab in its
+comparison colour). Compact is the iRacing shape: no panel, a thin rounded bar with a solid
+fill, the figure in a dark tag under it. `.bd-compact` on the root switches the stylesheet;
+the script's only compact-specific work is moving the figure row to the fill's end when
+"follows the fill" is on, a `translateX` in percent of the row's own width, which is the
+bar's, so half the width times the share lands exactly on the fill's end. The tick uses the
+same trick on its own full-width track, which is why a 2 px tick does not get thinner as
+the fill scales: it is never inside the scaled element.
+
+One trap found by the harness: a `section` spec and a value spec must not share a key
+(the first version had a "layout" section and a "layout" choice, and the choice could not
+be set).
 
 `npos` was not measured live before 0.1.0: the field is in the protobuf schema
 (`UICurrentCarState` field 113, `npos_perc` 112) and is range-checked at read time, so a

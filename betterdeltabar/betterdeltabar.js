@@ -8,9 +8,14 @@
  * through every corner is green all the way round. This widget keeps the bar for the
  * overall delta and colours the NUMBER by the trend: green while you are gaining on the
  * reference right now, red while you are losing, white while nothing is changing, with a
- * chevron on the side the time is going. Under it, optionally, the predicted lap against
- * the best, and a trace of the delta across the lap so the corner that cost the time is
- * still on the screen at the end of the straight.
+ * chevron on the side the time is going.
+ *
+ * Two layouts. "Full" is a broadcast-style block: a wide bar with the figure sitting on
+ * it and the fill growing out from the centre behind it, a bright tick at the fill's end,
+ * and a row of cells beneath -- session optimal, session best, predicted lap (coloured
+ * against the best) and, if wanted, the last lap. "Compact" is the iRacing shape: a thin
+ * bar with a solid fill and the figure in a small tag under it, which can follow the end
+ * of the fill. Either can add a trace of the delta across the lap.
  *
  * Loaded into the stock HUD page by the ACEUIAppLoader (see app.json). It knows nothing
  * of the stock ks-* component framework; it only reads the global model objects the game
@@ -32,9 +37,12 @@
  *     current_lap_time_ms     int ms; it going backwards is a new lap
  *     npos                    float 0..1, position along the lap (npos_perc is the same in %)
  *     delta_time_drivername   string, who the delta is against when it is not your own lap
- *     ModelTiming.best        string "1:43.445", "" when there is none; .invalid the lap flag
+ *     ModelTiming.best / .ideal / .last   strings "1:43.445", "" when there is none
+ *     ModelTiming.invalid     the lap flag
  *
  * A positive delta is time lost (slower than the reference), as everywhere in the game.
+ * The stock bar grows to the RIGHT for time gained; so does this one by default, and the
+ * "Faster side" option turns it round for anyone used to iRacing, where lost time grows right.
  *
  * Rendering rules (Cohtml/Renoir): the markup is built once at attach; per frame the
  * widget writes textContent when a string changed, toggles a class when a state changed
@@ -70,14 +78,17 @@ const BetterDeltaBar = (function () {
     const LOG_EVERY_MS = 60000;
     /** Decimals kept when writing transforms; more only churns strings. */
     const SCALE_DECIMALS = 3;
+    const SHIFT_DECIMALS = 2;
     const LAYOUT_DECIMALS = 4;
     const PERCENT = 100;
+    /** The fill's end sits at half the bar's width times the share: the tick and the tag move by that. */
+    const HALF_PERCENT = 50;
     /** Digits of a millisecond fraction, and of a padded seconds field. */
     const MS_DIGITS = 3;
     const TWO_DIGITS = 2;
     /** What a bar that must not show is set to: the stylesheet's own initial transform. */
-    const HIDDEN_X = "scaleX(0)";
     const HIDDEN_Y = "scaleY(0)";
+    const NO_SHIFT = "translateX(0%)";
 
     /**
      * The trend. The delta is sampled at TREND_HZ into a ring long enough for the widest
@@ -117,8 +128,10 @@ const BetterDeltaBar = (function () {
     const NO_REFERENCE_TEXT = "no reference lap";
     const INVALID_TEXT = "INVALID";
     const VS_TEXT = "vs ";
-    const PRED_LABEL = "PRED";
-    const BEST_LABEL = "BEST";
+    const OPTIMAL_LABEL = "SESSION OPTIMAL";
+    const BEST_LABEL = "SESSION BEST";
+    const LAST_LABEL = "LAST LAP";
+    const PRED_LABEL = "PREDICTED LAP";
 
     /** Slots across the lap trace; each holds one delta, written when the car passes it. */
     const TRACE_N = 120;
@@ -133,9 +146,13 @@ const BetterDeltaBar = (function () {
     const SCALE_MAX = 2;
     const SCALE_STEP = 0.1;
 
+    const LAYOUT_FULL = "full";
+    const LAYOUT_COMPACT = "compact";
     const WIDTH_NARROW = "narrow";
     const WIDTH_NORMAL = "normal";
     const WIDTH_WIDE = "wide";
+    const SIDE_RIGHT = "right";
+    const SIDE_LEFT = "left";
     const COLOUR_TREND = "trend";
     const COLOUR_OVERALL = "overall";
     const COLOUR_WHITE = "white";
@@ -152,11 +169,16 @@ const BetterDeltaBar = (function () {
         vs: "bd-vs",
         status: "bd-status",
         invalidTag: "bd-invalid-tag",
+        /** The bar and the figure share this box: the figure sits on the bar (full) or under it (compact). */
+        stack: "bd-stack",
         bar: "bd-bar",
         fill: "bd-fill",
         left: "bd-left",
         right: "bd-right",
         mid: "bd-mid",
+        /** A full-width track moved by the fill's share, carrying the bright tick at the fill's end. */
+        tickTrack: "bd-ticktrack",
+        tick: "bd-tick",
         main: "bd-main",
         delta: "bd-delta",
         arrow: "bd-arrow",
@@ -167,11 +189,15 @@ const BetterDeltaBar = (function () {
         slot: "bd-slot",
         up: "bd-up",
         down: "bd-down",
-        info: "bd-info",
-        item: "bd-item",
-        pred: "bd-pred",
-        best: "bd-best",
-        value: "bd-val",
+        /** The row of lap times under the bar. */
+        cells: "bd-cells",
+        cell: "bd-cell",
+        cellOptimal: "bd-cell-optimal",
+        cellBest: "bd-cell-best",
+        cellLast: "bd-cell-last",
+        cellPred: "bd-cell-pred",
+        time: "bd-time",
+        label: "bd-label",
         /** On the root, per frame: the trend, its strength, the overall sign, no reference. */
         gain: "bd-gain",
         lose: "bd-lose",
@@ -184,13 +210,16 @@ const BetterDeltaBar = (function () {
         hasDriver: "bd-hasdriver",
         /** On the root: whether the top line has anything to show. */
         topOn: "bd-top-on",
-        /** On the predicted item: the predicted lap against the best. */
+        /** On the predicted cell: the predicted lap against the best. */
         predFaster: "bd-pred-faster",
         predSlower: "bd-pred-slower",
-        /** On the root: what the options hide, and the looks they choose. */
+        /** On the root: the layout, what the options hide, and the looks they choose. */
+        compact: "bd-compact",
         noArrows: "bd-noarrows",
-        noPred: "bd-nopred",
+        noOptimal: "bd-nooptimal",
         noBest: "bd-nobest",
+        noLast: "bd-nolast",
+        noPred: "bd-nopred",
         noTrace: "bd-notrace",
         noInvalid: "bd-noinvalid",
         noDriver: "bd-nodriver",
@@ -216,16 +245,21 @@ const BetterDeltaBar = (function () {
     /** The options, declared once at load so the drawer offers OPTIONS and the values are there before attach. */
     const SETTING = {
         scale: "scale",
+        layout: "layout",
         width: "width",
+        side: "fasterSide",
         range: "range",
         decimals: "decimals",
+        follow: "followFill",
         numberColour: "numberColour",
         barColour: "barColour",
         trendWindow: "trendWindow",
         trendBand: "trendBand",
         arrows: "showArrows",
-        pred: "showPredicted",
+        optimal: "showOptimal",
         best: "showBest",
+        last: "showLast",
+        pred: "showPredicted",
         trace: "showTrace",
         invalid: "showInvalid",
         driver: "showDriver",
@@ -246,11 +280,16 @@ const BetterDeltaBar = (function () {
     };
 
     const options = settings.define(me.name, [
-        section("layout", "Layout", 1, false),
+        // the section's key must differ from the layout option's: the store keys both alike
+        section("shape", "Layout", 1, false),
+        choice(SETTING.layout, "Layout", LAYOUT_FULL, [LAYOUT_FULL, LAYOUT_COMPACT],
+            "full: the figure on the bar and the lap times under it; compact: a thin bar with the figure in a tag"),
         me.scaleSpec({ min: SCALE_MIN, max: SCALE_MAX, step: SCALE_STEP }),
         choice(SETTING.width, "Width", WIDTH_NORMAL, [WIDTH_NARROW, WIDTH_NORMAL, WIDTH_WIDE]),
+        choice(SETTING.side, "Faster side", SIDE_RIGHT, [SIDE_RIGHT, SIDE_LEFT], "which way the bar grows for time gained; the game's own grows right"),
         choice(SETTING.range, "Bar range", RANGE_DEFAULT, Object.keys(RANGES), "the delta that fills the bar, and the trace"),
         choice(SETTING.decimals, "Decimals", DECIMALS_DEFAULT, Object.keys(DECIMALS)),
+        toggle(SETTING.follow, "Figure follows the fill", true, "compact layout: the tag moves with the end of the bar"),
         section("colour", "Colour", 1, false),
         choice(SETTING.numberColour, "Number colour", COLOUR_TREND, [COLOUR_TREND, COLOUR_OVERALL, COLOUR_WHITE],
             "trend: green while gaining, red while losing, white while steady"),
@@ -260,9 +299,11 @@ const BetterDeltaBar = (function () {
         choice(SETTING.trendBand, "Trend sensitivity", TREND_BAND_DEFAULT, Object.keys(TREND_BANDS), "fine reacts to less"),
         section("show", "Show", 2, false),
         toggle(SETTING.arrows, "Trend chevrons", true),
-        toggle(SETTING.trace, "Lap trace", true),
+        toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar"),
+        toggle(SETTING.optimal, "Session optimal", true),
+        toggle(SETTING.best, "Session best", true),
         toggle(SETTING.pred, "Predicted lap", true),
-        toggle(SETTING.best, "Best lap", true),
+        toggle(SETTING.last, "Last lap", false),
         toggle(SETTING.invalid, "Invalid lap tag", true),
         toggle(SETTING.driver, "Driver name", true, "when the delta is against another driver"),
         section("look", "Look", 2, true),
@@ -272,9 +313,9 @@ const BetterDeltaBar = (function () {
     ]);
 
     /** The option keys that change what is drawn or how, and nothing else. */
-    const VIEW_KEYS = [SETTING.width, SETTING.range, SETTING.decimals, SETTING.numberColour, SETTING.barColour,
-        SETTING.trendWindow, SETTING.trendBand, SETTING.arrows, SETTING.pred, SETTING.best, SETTING.trace,
-        SETTING.invalid, SETTING.driver, SETTING.bg];
+    const VIEW_KEYS = [SETTING.layout, SETTING.width, SETTING.side, SETTING.range, SETTING.decimals, SETTING.follow,
+        SETTING.numberColour, SETTING.barColour, SETTING.trendWindow, SETTING.trendBand, SETTING.arrows, SETTING.optimal,
+        SETTING.best, SETTING.last, SETTING.pred, SETTING.trace, SETTING.invalid, SETTING.driver, SETTING.bg];
 
     // ---- formatting --------------------------------------------------------------
 
@@ -331,12 +372,22 @@ const BetterDeltaBar = (function () {
             + parseInt((m[4] + "000").substring(0, MS_DIGITS), 10);
     };
 
+    /** A lap time string from the game, shown as it came when it is one, as the placeholder otherwise. */
+    const lapText = function (text) {
+        return parseLap(text) === null ? NO_TIME_TEXT : text;
+    };
+
     const scaleXTransform = function (share) {
         return "scaleX(" + share.toFixed(SCALE_DECIMALS) + ")";
     };
 
     const scaleYTransform = function (share) {
         return "scaleY(" + share.toFixed(SCALE_DECIMALS) + ")";
+    };
+
+    /** Moving a full-width track to the fill's end: half the width times the share, signed by the side. */
+    const shiftTransform = function (signedShare) {
+        return "translateX(" + (signedShare * HALF_PERCENT).toFixed(SHIFT_DECIMALS) + "%)";
     };
 
     // ---- markup ------------------------------------------------------------------
@@ -356,27 +407,40 @@ const BetterDeltaBar = (function () {
         return el("div", CLASS.trace) + el("div", CLASS.zero) + close("div") + slots.join("") + close("div");
     };
 
-    /** The widget's markup: top line, bar, figure with chevrons, lap trace, predicted and best. */
+    /** One lap-time cell: the time over its label. */
+    const cellMarkup = function (className, label) {
+        return el("div", CLASS.cell + " " + className)
+            + el("div", CLASS.time) + NO_TIME_TEXT + close("div")
+            + el("div", CLASS.label) + label + close("div")
+            + close("div");
+    };
+
+    /** The widget's markup: top line, the bar with the figure, the lap trace, the lap-time cells. */
     const markup = function () {
         return el("div", CLASS.top)
             + el("div", CLASS.vs) + close("div")
             + el("div", CLASS.status) + NO_REFERENCE_TEXT + close("div")
             + el("div", CLASS.invalidTag) + INVALID_TEXT + close("div")
             + close("div")
+            + el("div", CLASS.stack)
             + el("div", CLASS.bar)
             + el("div", CLASS.fill + " " + CLASS.left) + close("div")
             + el("div", CLASS.fill + " " + CLASS.right) + close("div")
             + el("div", CLASS.mid) + close("div")
+            + el("div", CLASS.tickTrack) + el("div", CLASS.tick) + close("div") + close("div")
             + close("div")
             + el("div", CLASS.main)
             + el("div", CLASS.arrow + " " + CLASS.arrowLeft) + close("div")
             + el("div", CLASS.delta) + NO_DELTA_TEXTS[DECIMALS_DEFAULT] + close("div")
             + el("div", CLASS.arrow + " " + CLASS.arrowRight) + close("div")
             + close("div")
+            + close("div")
             + traceMarkup()
-            + el("div", CLASS.info)
-            + el("div", CLASS.item + " " + CLASS.pred) + PRED_LABEL + el("div", CLASS.value) + NO_TIME_TEXT + close("div") + close("div")
-            + el("div", CLASS.item + " " + CLASS.best) + BEST_LABEL + el("div", CLASS.value) + NO_TIME_TEXT + close("div") + close("div")
+            + el("div", CLASS.cells)
+            + cellMarkup(CLASS.cellOptimal, OPTIMAL_LABEL)
+            + cellMarkup(CLASS.cellBest, BEST_LABEL)
+            + cellMarkup(CLASS.cellLast, LAST_LABEL)
+            + cellMarkup(CLASS.cellPred, PRED_LABEL)
             + close("div");
     };
 
@@ -406,10 +470,14 @@ const BetterDeltaBar = (function () {
             vs: q("." + CLASS.vs),
             leftFill: q("." + CLASS.left),
             rightFill: q("." + CLASS.right),
+            tickTrack: q("." + CLASS.tickTrack),
+            main: q("." + CLASS.main),
             figure: q("." + CLASS.delta),
-            predItem: q("." + CLASS.pred),
-            predValue: q("." + CLASS.pred + " ." + CLASS.value),
-            bestValue: q("." + CLASS.best + " ." + CLASS.value),
+            predCell: q("." + CLASS.cellPred),
+            optimalTime: q("." + CLASS.cellOptimal + " ." + CLASS.time),
+            bestTime: q("." + CLASS.cellBest + " ." + CLASS.time),
+            lastTime: q("." + CLASS.cellLast + " ." + CLASS.time),
+            predTime: q("." + CLASS.cellPred + " ." + CLASS.time),
             ups: toArray(root.querySelectorAll("." + CLASS.up)),
             downs: toArray(root.querySelectorAll("." + CLASS.down)),
             unsubscribeSettings: null,
@@ -427,15 +495,21 @@ const BetterDeltaBar = (function () {
             windowSamples: TREND_HZ,
             windowMs: MS_PER_S,
             band: TREND_BANDS[TREND_BAND_DEFAULT],
-            traceOn: true,
+            fasterRight: true,          // time gained grows to the right (the game's own convention)
+            followOn: false,            // compact layout with the figure following the fill
+            traceOn: false,
             invalidOn: true,
             driverOn: true,
             // per-frame caches: the last thing written, so unchanged values are not rewritten
             lastText: "",
             lastLeft: "",
             lastRight: "",
+            lastTick: "",
+            lastFollow: "",
+            lastOptimal: null,          // the ModelTiming strings last seen
+            lastBestText: null,
+            lastLast: null,
             lastPred: "",
-            lastBestText: null,         // the ModelTiming.best string last parsed
             bestMs: null,
             lastVs: "",
             lastUps: [],
@@ -471,6 +545,7 @@ const BetterDeltaBar = (function () {
         const root = state.root;
         const decimals = options[SETTING.decimals];
         const numberColour = options[SETTING.numberColour];
+        const compact = options[SETTING.layout] === LAYOUT_COMPACT;
 
         state.rangeMs = RANGES[options[SETTING.range]] || RANGES[RANGE_DEFAULT];
         state.decimals = DECIMALS[decimals] || DECIMALS[DECIMALS_DEFAULT];
@@ -478,13 +553,18 @@ const BetterDeltaBar = (function () {
         state.windowMs = windowSeconds(options[SETTING.trendWindow]) * MS_PER_S;
         state.windowSamples = Math.round(windowSeconds(options[SETTING.trendWindow]) * TREND_HZ);
         state.band = TREND_BANDS[options[SETTING.trendBand]] || TREND_BANDS[TREND_BAND_DEFAULT];
-        state.traceOn = options[SETTING.trace] !== false;
+        state.fasterRight = options[SETTING.side] !== SIDE_LEFT;
+        state.followOn = compact && options[SETTING.follow] !== false;
+        state.traceOn = options[SETTING.trace] === true;
         state.invalidOn = options[SETTING.invalid] !== false;
         state.driverOn = options[SETTING.driver] !== false;
 
+        setClass(root, CLASS.compact, compact);
         setClass(root, CLASS.noArrows, options[SETTING.arrows] === false);
-        setClass(root, CLASS.noPred, options[SETTING.pred] === false);
+        setClass(root, CLASS.noOptimal, options[SETTING.optimal] === false);
         setClass(root, CLASS.noBest, options[SETTING.best] === false);
+        setClass(root, CLASS.noLast, options[SETTING.last] !== true);
+        setClass(root, CLASS.noPred, options[SETTING.pred] === false);
         setClass(root, CLASS.noTrace, !state.traceOn);
         setClass(root, CLASS.noInvalid, !state.invalidOn);
         setClass(root, CLASS.noDriver, !state.driverOn);
@@ -499,8 +579,12 @@ const BetterDeltaBar = (function () {
         state.lastText = "";
         state.lastLeft = "";
         state.lastRight = "";
-        state.lastPred = "";
+        state.lastTick = "";
+        state.lastFollow = "";
+        state.lastOptimal = null;
         state.lastBestText = null;
+        state.lastLast = null;
+        state.lastPred = "";
         state.lastVs = "";
         state.lastUps = [];
         state.lastDowns = [];
@@ -541,6 +625,11 @@ const BetterDeltaBar = (function () {
         return x;
     };
 
+    /** A timing string as the game sends it, or "" when the field is not a string. */
+    const timeString = function (timing, key) {
+        return timing && typeof timing[key] === "string" ? timing[key] : "";
+    };
+
     /**
      * What the widget shows, read from the game's models, or null when there is no focused
      * car. The delta is the raw `delta_time_ms` when it is sane (finer than the UI one for
@@ -573,7 +662,9 @@ const BetterDeltaBar = (function () {
             lapMs: deltaOf(car.current_lap_time_ms),
             npos: npos,
             driver: typeof car.delta_time_drivername === "string" ? car.delta_time_drivername : "",
-            best: timing && typeof timing.best === "string" ? timing.best : "",
+            best: timeString(timing, "best"),
+            optimal: timeString(timing, "ideal"),
+            last: timeString(timing, "last"),
             invalid: Boolean(timing && timing.invalid === true)
         };
     };
@@ -586,6 +677,8 @@ const BetterDeltaBar = (function () {
     const ATTRACT_LAP_S = 40;
     const ATTRACT_BEST_MS = 103445;
     const ATTRACT_BEST_TEXT = "1:43.445";
+    const ATTRACT_OPTIMAL_TEXT = "1:43.102";
+    const ATTRACT_LAST_TEXT = "1:43.987";
     /** Corners in the scripted lap: where (share of the lap), how long, and the time each costs (ms). */
     const ATTRACT_CORNERS = [
         { at: 0.18, width: 0.08, cost: 420 },
@@ -627,6 +720,8 @@ const BetterDeltaBar = (function () {
             npos: phase,
             driver: "",
             best: ATTRACT_BEST_TEXT,
+            optimal: ATTRACT_OPTIMAL_TEXT,
+            last: ATTRACT_LAST_TEXT,
             invalid: false
         };
     };
@@ -703,24 +798,33 @@ const BetterDeltaBar = (function () {
         return Math.min(1, Math.abs(delta) / state.rangeMs);
     };
 
-    /** The bar: the faster half grows left, the slower half right; the figure; the overall sign. */
+    /** Write a transform when it differs from the last one written. */
+    const setTransform = function (state, cacheKey, node, value) {
+        if (state[cacheKey] !== value) {
+            state[cacheKey] = value;
+            node.style.transform = value;
+        }
+    };
+
+    /**
+     * The bar: the fill grows out from the centre on the faster side for time gained and on
+     * the other for time lost; the tick rides its end, and so does the figure when it follows.
+     * Then the figure's text and the overall sign.
+     */
     const renderDelta = function (state, delta) {
         const hasRef = delta !== null;
         const share = hasRef ? shareOf(state, delta) : 0;
-        const left = scaleXTransform(hasRef && delta < 0 ? share : 0);
-        const right = scaleXTransform(hasRef && delta > 0 ? share : 0);
-        const text = hasRef ? formatDelta(delta, state.decimals) : state.noDeltaText;
         const sign = hasRef && delta !== 0 ? (delta < 0 ? -1 : 1) : 0;
+        // the fill on the right when the delta is on the side the right stands for
+        const onRight = sign !== 0 && (sign < 0) === state.fasterRight;
+        const signedShare = onRight ? share : -share;
+        const text = hasRef ? formatDelta(delta, state.decimals) : state.noDeltaText;
+        const shift = sign === 0 ? NO_SHIFT : shiftTransform(signedShare);
 
-        if (left !== state.lastLeft) {
-            state.lastLeft = left;
-            state.leftFill.style.transform = left;
-        }
-
-        if (right !== state.lastRight) {
-            state.lastRight = right;
-            state.rightFill.style.transform = right;
-        }
+        setTransform(state, "lastRight", state.rightFill, scaleXTransform(onRight ? share : 0));
+        setTransform(state, "lastLeft", state.leftFill, scaleXTransform(sign !== 0 && !onRight ? share : 0));
+        setTransform(state, "lastTick", state.tickTrack, shift);
+        setTransform(state, "lastFollow", state.main, state.followOn ? shift : NO_SHIFT);
 
         if (text !== state.lastText) {
             state.lastText = text;
@@ -797,7 +901,7 @@ const BetterDeltaBar = (function () {
         state.traceSlot = slot;
     };
 
-    /** Predicted lap against the best, the best itself, who the delta is against, the invalid tag, the top line. */
+    /** The lap-time cells, who the delta is against, the invalid tag, the top line. */
     const renderInfo = function (state, m) {
         const pred = formatLap(m.predicted);
         const hasDriver = state.driverOn && m.driver !== "";
@@ -808,12 +912,22 @@ const BetterDeltaBar = (function () {
         if (m.best !== state.lastBestText) {
             state.lastBestText = m.best;
             state.bestMs = parseLap(m.best);
-            state.bestValue.textContent = state.bestMs === null ? NO_TIME_TEXT : m.best;
+            state.bestTime.textContent = lapText(m.best);
+        }
+
+        if (m.optimal !== state.lastOptimal) {
+            state.lastOptimal = m.optimal;
+            state.optimalTime.textContent = lapText(m.optimal);
+        }
+
+        if (m.last !== state.lastLast) {
+            state.lastLast = m.last;
+            state.lastTime.textContent = lapText(m.last);
         }
 
         if (pred !== state.lastPred) {
             state.lastPred = pred;
-            state.predValue.textContent = pred;
+            state.predTime.textContent = pred;
         }
 
         if (m.predicted !== null && state.bestMs !== null && m.predicted !== state.bestMs) {
@@ -822,8 +936,8 @@ const BetterDeltaBar = (function () {
 
         if (predState !== state.predState) {
             state.predState = predState;
-            setClass(state.predItem, CLASS.predFaster, predState < 0);
-            setClass(state.predItem, CLASS.predSlower, predState > 0);
+            setClass(state.predCell, CLASS.predFaster, predState < 0);
+            setClass(state.predCell, CLASS.predSlower, predState > 0);
         }
 
         if (hasDriver && m.driver !== state.lastVs) {
@@ -917,8 +1031,9 @@ const BetterDeltaBar = (function () {
         state.scaler = me.scale(root, { min: SCALE_MIN, max: SCALE_MAX, step: SCALE_STEP });
         state.ui = me.panel(root, function (now) { tick(state, now); });
         current = state;
-        log("widget attached, range " + state.rangeMs + " ms, trend window " + state.windowMs + " ms, band " + state.band
-            + " ms/s, trace " + (state.traceOn ? "on" : "off") + ", scale " + state.scaler.value() + ", attract " + (state.attract ? "on" : "off"));
+        log("widget attached, layout " + (options[SETTING.layout] || LAYOUT_FULL) + ", range " + state.rangeMs + " ms, trend window "
+            + state.windowMs + " ms, band " + state.band + " ms/s, faster " + (state.fasterRight ? SIDE_RIGHT : SIDE_LEFT)
+            + ", trace " + (state.traceOn ? "on" : "off") + ", scale " + state.scaler.value() + ", attract " + (state.attract ? "on" : "off"));
 
         return state;
     };

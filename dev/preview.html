@@ -22,6 +22,8 @@
  *   options  the widget's settings window open, as the app drawer opens it in game
  *   unfold   every section of that window open
  *   noref    start with no reference lap
+ *   compact  the compact layout (the option is set, and persists like in game)
+ *   full     the full layout
  *   shot     for headless screenshots (a Chromium run with --virtual-time-budget delivers one
  *            animation frame and no more, so frames are driven from timers, which do advance)
  *   solo     no control panel: the stage fills the window, for cropping a screenshot
@@ -97,6 +99,7 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
     <button id="btn-hide">hide HUD</button>
     <button id="btn-focus" class="on">focused car</button>
     <button id="btn-reset">reset position</button>
+    <button id="btn-layout">compact</button>
     <button id="btn-options">options</button>
     <span class="dim">delta <b id="delta">0</b> ms, lap <b id="lap">0.0</b> s, fps <b id="fps">0</b></span>
     <span class="dim">drag the widget to move it; position and options persist like in game</span>
@@ -107,7 +110,7 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
 /** Fake game side: the models the widget reads, driven by keys or a scripted lap. */
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 0, npos: 0, delta_time_drivername: "" };
-window.ModelTiming = { best: "1:43.445", invalid: false };
+window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", invalid: false };
 
 const Preview = (function () {
 
@@ -244,6 +247,9 @@ const Preview = (function () {
             location.reload();
         });
 
+        toggleButton("#btn-layout", function () { return ACEUIAppLoader.settings.get("betterdeltabar", "layout") === "compact"; },
+            function (on) { ACEUIAppLoader.settings.set("betterdeltabar", "layout", on ? "compact" : "full"); });
+
         // the same settings window the app drawer opens in game, over the stage
         q("#btn-options").addEventListener("click", function () {
             ACEUIAppLoader.settings.toggle("betterdeltabar");
@@ -263,6 +269,10 @@ const Preview = (function () {
         if (window.PreviewFlags.indexOf("noref") >= 0) { state.noref = true; q("#btn-noref").classList.add("on"); }
 
         if (window.PreviewFlags.indexOf("solo") >= 0) { q("#panel").style.display = "none"; }
+
+        if (window.PreviewFlags.indexOf("compact") >= 0) { ACEUIAppLoader.settings.set("betterdeltabar", "layout", "compact"); }
+
+        if (window.PreviewFlags.indexOf("full") >= 0) { ACEUIAppLoader.settings.set("betterdeltabar", "layout", "full"); }
 
         // a screenshot wants a lap under way: the headless run's virtual-time budget decides how far round
         // it gets (36 s from here lands in the third corner: the lap still up, time being lost right now)

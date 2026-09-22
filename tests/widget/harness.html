@@ -15,7 +15,7 @@
 // Fake game models, mutable by tests. The sentinel is what the game sends with no reference lap.
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 5000, npos: 0.0, delta_time_drivername: "" };
-window.ModelTiming = { best: "", invalid: false };
+window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
 </script>
 <!-- the ACEUIAppLoader library from the sibling checkout, in load order (in game it is part of cohtml.js) -->
 <script src="../../../ACEUIAppLoader/tests/lib/lib.js"></script>
@@ -42,7 +42,9 @@ window.ModelTiming = { best: "", invalid: false };
 
     const sx = function (el) { const m = /scaleX\((-?[\d.]+)\)/.exec(el.style.transform || ""); return m ? parseFloat(m[1]) : NaN; };
     const sy = function (el) { const m = /scaleY\((-?[\d.]+)\)/.exec(el.style.transform || ""); return m ? parseFloat(m[1]) : NaN; };
+    const tx = function (el) { const m = /translateX\((-?[\d.]+)%\)/.exec(el.style.transform || ""); return m ? parseFloat(m[1]) : NaN; };
     const has = function (el, cls) { return el.classList.contains(cls); };
+    const set = function (k, v) { ACEUIAppLoader.settings.set(me.name, k, v); };
 
     /** Set the delta the game would send: the raw ms and the UI copy rounded to 10 ms. */
     const setDelta = function (ms) {
@@ -87,11 +89,12 @@ window.ModelTiming = { best: "", invalid: false };
 
     t("readModel: null without a focused car; the sentinel is no delta; the raw delta is preferred; npos_perc stands in for npos", function () {
         car.has_focused_car = false; eq(B.readModel(), null); car.has_focused_car = true;
-        let m = B.readModel(); eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.invalid, false);
+        let m = B.readModel(); eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.optimal, ""); eq(m.last, ""); eq(m.invalid, false);
         setDelta(-235); m = B.readModel(); eq(m.delta, -235, "raw ms"); eq(m.lapMs, 5000);
         car.delta_time_ms = "junk"; m = B.readModel(); eq(m.delta, -240, "falls back to the UI copy");
         car.npos = undefined; car.npos_perc = 25; m = B.readModel(); near(m.npos, 0.25, 1e-9, "npos from npos_perc");
         car.npos_perc = undefined; m = B.readModel(); eq(m.npos, null, "no position at all");
+        timing.ideal = "1:43.102"; m = B.readModel(); eq(m.optimal, "1:43.102", "the optimal lap is the timing model's ideal"); timing.ideal = "";
         car.npos = 0; setDelta(null);
     });
 
@@ -99,51 +102,66 @@ window.ModelTiming = { best: "", invalid: false };
     center.appendChild(root);
     const state = B.attach(root);
     const q = function (s) { return root.querySelector(s); };
-    const figure = q(".bd-delta"), left = q(".bd-left"), right = q(".bd-right");
+    const figure = q(".bd-delta"), left = q(".bd-left"), right = q(".bd-right"), tick = q(".bd-ticktrack"), main = q(".bd-main");
     const ups = Array.prototype.slice.call(root.querySelectorAll(".bd-up"));
     const downs = Array.prototype.slice.call(root.querySelectorAll(".bd-down"));
+    const cellTime = function (name) { return q(".bd-cell-" + name + " .bd-time").textContent; };
 
-    t("attach builds the markup once: bar, figure, chevrons, 120 trace slots, predicted and best; panel and loop wired", function () {
-        ok(has(root, "ace-betterdeltabar"), "root class");
-        ok(left && right && figure, "bar fills and figure"); eq(root.querySelectorAll(".bd-arrow").length, 2, "two chevrons");
+    t("attach builds the markup once: bar, figure, chevrons, tick, 120 trace slots, four cells; panel and loop wired", function () {
+        ok(has(root, "ace-betterdeltabar"), "root class"); ok(!has(root, "bd-compact"), "full layout by default");
+        ok(left && right && figure && tick, "bar fills, figure, tick"); eq(root.querySelectorAll(".bd-arrow").length, 2, "two chevrons");
         eq(root.querySelectorAll(".bd-slot").length, 120, "slots"); eq(ups.length, 120); eq(downs.length, 120);
-        eq(q(".bd-pred .bd-val").textContent, "-:--.---"); eq(q(".bd-best .bd-val").textContent, "-:--.---");
+        eq(root.querySelectorAll(".bd-cell").length, 4, "cells");
+        ["optimal", "best", "last", "pred"].forEach(function (c) { eq(cellTime(c), "-:--.---", c + " placeholder"); });
+        eq(q(".bd-cell-optimal .bd-label").textContent, "SESSION OPTIMAL"); eq(q(".bd-cell-pred .bd-label").textContent, "PREDICTED LAP");
         eq(figure.textContent, "--.---", "placeholder before the first frame");
         eq(getComputedStyle(root).position, "absolute", "stylesheet applied");
         eq(root.style.visibility, "hidden", "hidden until positioned");
         eq(state.ui.panel.root, root, "panel attached"); eq(state.ui.panel.hudId, me.hudId); ok(state.ui.loop && state.ui.loop.running, "loop running");
         eq(clock.queue.length, 1, "one animation frame requested");
-        ok(has(root, "bd-flat"), "starts flat"); ok(!has(root, "bd-notrace"), "trace on by default");
+        ok(has(root, "bd-flat"), "starts flat");
+        ok(has(root, "bd-notrace"), "trace off by default"); ok(has(root, "bd-nolast"), "last lap off by default");
+        ok(!has(root, "bd-nooptimal") && !has(root, "bd-nobest") && !has(root, "bd-nopred"), "optimal, best and predicted on");
+        eq(getComputedStyle(q(".bd-cell-last")).display, "none", "last cell hidden"); eq(getComputedStyle(q(".bd-trace")).display, "none", "trace hidden");
         ups.forEach(function (u) { eq(u.style.transform, "scaleY(0)", "trace blank"); });
     });
 
-    t("no reference lap: dim placeholder, empty bar, the note on the top line", function () {
+    t("no reference lap: dim placeholder, empty bar, tick hidden, the note on the top line", function () {
         frame();
         ok(has(root, "bd-noref"), "bd-noref"); ok(has(root, "bd-top-on"), "top line shows the note");
-        eq(figure.textContent, "--.---"); eq(sx(left), 0); eq(sx(right), 0);
+        eq(figure.textContent, "--.---"); eq(sx(left), 0); eq(sx(right), 0); eq(tx(tick), 0, "tick at the centre");
         ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "no sign");
         eq(getComputedStyle(q(".bd-status")).display, "block", "the note is visible");
+        eq(getComputedStyle(q(".bd-tick")).opacity, "0", "tick hidden");
     });
 
-    t("time gained: the figure, the left half of the bar, the overall sign; nothing on the top line", function () {
+    t("time gained grows right (the game's convention): the right fill, the tick at its end, the figure, the sign", function () {
         setDelta(-235); frame();
-        eq(figure.textContent, "-0.235"); near(sx(left), 0.235, 1e-6, "left fill is |delta| / range"); eq(sx(right), 0);
+        eq(figure.textContent, "-0.235"); near(sx(right), 0.235, 1e-6, "right fill is |delta| / range"); eq(sx(left), 0);
+        near(tx(tick), 11.75, 1e-6, "tick moved by half the width times the share"); eq(tx(main), 0, "the figure stays put in the full layout");
         ok(has(root, "bd-faster"), "faster"); ok(!has(root, "bd-slower")); ok(!has(root, "bd-noref"));
         ok(!has(root, "bd-top-on"), "top line has nothing to say");
         eq(getComputedStyle(q(".bd-top")).display, "none");
     });
 
-    t("time lost, past the range: the right half full, the figure exact", function () {
+    t("time lost grows left, past the range: the left fill full, the figure exact", function () {
         setDelta(1500); frame();
-        eq(figure.textContent, "+1.500"); eq(sx(right), 1, "clamped"); eq(sx(left), 0); ok(has(root, "bd-slower"));
-        setDelta(0); frame(); eq(figure.textContent, "0.000"); ok(!has(root, "bd-slower") && !has(root, "bd-faster"), "zero has no sign");
+        eq(figure.textContent, "+1.500"); eq(sx(left), 1, "clamped"); eq(sx(right), 0); near(tx(tick), -50, 1e-6, "tick at the left end"); ok(has(root, "bd-slower"));
+        setDelta(0); frame(); eq(figure.textContent, "0.000"); ok(!has(root, "bd-slower") && !has(root, "bd-faster"), "zero has no sign"); eq(tx(tick), 0);
+    });
+
+    t("the faster side option turns the bar round", function () {
+        set("fasterSide", "left"); setDelta(-235); frame();
+        near(sx(left), 0.235, 1e-6, "gained time on the left now"); eq(sx(right), 0); near(tx(tick), -11.75, 1e-6);
+        setDelta(500); frame(); near(sx(right), 0.5, 1e-6, "lost time on the right"); eq(sx(left), 0);
+        set("fasterSide", "right"); frame(); near(sx(left), 0.5, 1e-6, "and back");
     });
 
     t("unchanged values are not rewritten", function () {
         setDelta(-235); frame();
-        figure.textContent = "sentinel"; left.style.transform = "scaleX(0.5)"; frame();
-        eq(figure.textContent, "sentinel", "text not rewritten"); eq(left.style.transform, "scaleX(0.5)", "transform not rewritten");
-        setDelta(-236); frame(); eq(figure.textContent, "-0.236"); near(sx(left), 0.236, 1e-6);
+        figure.textContent = "sentinel"; right.style.transform = "scaleX(0.5)"; frame();
+        eq(figure.textContent, "sentinel", "text not rewritten"); eq(right.style.transform, "scaleX(0.5)", "transform not rewritten");
+        setDelta(-236); frame(); eq(figure.textContent, "-0.236"); near(sx(right), 0.236, 1e-6);
     });
 
     t("the trend: gaining colours green after a window, strongly when fast; steady is flat; losing is red", function () {
@@ -179,11 +197,12 @@ window.ModelTiming = { best: "", invalid: false };
         eq(state.count, 0); ok(has(root, "bd-noref")); eq(figure.textContent, "--.---"); eq(sx(right), 0);
     });
 
-    t("the lap trace: the slot under the car takes the delta, skipped slots are filled, the wrap clears the lap", function () {
-        // the frames so far sat at npos 0, so slot 0 is written; a jump to 0.25 fills 1..30 with the delta then
+    t("the lap trace (switched on): the slot under the car takes the delta, skipped slots are filled, the wrap clears the lap", function () {
+        set("showTrace", true); eq(state.traceOn, true); ok(!has(root, "bd-notrace"));
+        // the frames so far sat at npos 0 with the trace off, so nothing is written yet; a jump to 0.25 fills 0..30
         setDelta(-500); car.npos = 0.25; frame();
         near(sy(ups[30]), 0.5, 1e-6, "slot 30 up half (500 of 1000)"); eq(sy(downs[30]), 0);
-        near(sy(ups[1]), 0.5, 1e-6, "slots skipped since the last frame take the same delta"); eq(sy(ups[31]), 0, "slot ahead untouched");
+        eq(sy(ups[31]), 0, "slot ahead untouched");
         car.npos = 0.30; setDelta(250); frame();
         [31, 32, 33, 34, 35, 36].forEach(function (i) { near(sy(downs[i]), 0.25, 1e-6, "slot " + i + " down"); eq(sy(ups[i]), 0); });
         car.npos = 0.9; frame(); near(sy(downs[108]), 0.25, 1e-6, "slot 108");
@@ -198,15 +217,18 @@ window.ModelTiming = { best: "", invalid: false };
         eq(sy(ups[60]), 0, "trace cleared"); ok(sy(ups[66]) > 0, "the slot under the car is written again at once");
         ok(state.count <= 2, "ring reset: " + state.count);
         car.current_lap_time_ms = 200; frame();
+        set("showTrace", false);
     });
 
-    t("predicted lap against the best: green when quicker, red when slower, plain without a best", function () {
-        car.predicted_lap_time_ms = 103210; timing.best = "1:43.445"; frame();
-        eq(q(".bd-pred .bd-val").textContent, "1:43.210"); eq(q(".bd-best .bd-val").textContent, "1:43.445");
-        ok(has(q(".bd-pred"), "bd-pred-faster"), "quicker"); eq(getComputedStyle(q(".bd-pred .bd-val")).color, "rgb(68, 234, 120)");
-        car.predicted_lap_time_ms = 104000; frame(); ok(has(q(".bd-pred"), "bd-pred-slower")); ok(!has(q(".bd-pred"), "bd-pred-faster"));
-        timing.best = ""; frame(); eq(q(".bd-best .bd-val").textContent, "-:--.---"); ok(!has(q(".bd-pred"), "bd-pred-slower"), "no best, no colour");
-        car.predicted_lap_time_ms = -1; frame(); eq(q(".bd-pred .bd-val").textContent, "-:--.---");
+    t("the cells: optimal, best and last as the game formats them; predicted against the best, green when quicker, red when slower", function () {
+        timing.ideal = "1:43.102"; timing.best = "1:43.445"; timing.last = "1:43.987"; car.predicted_lap_time_ms = 103210; frame();
+        eq(cellTime("optimal"), "1:43.102"); eq(cellTime("best"), "1:43.445"); eq(cellTime("last"), "1:43.987"); eq(cellTime("pred"), "1:43.210");
+        ok(has(q(".bd-cell-pred"), "bd-pred-faster"), "quicker"); eq(getComputedStyle(q(".bd-cell-pred .bd-time")).color, "rgb(68, 234, 120)");
+        car.predicted_lap_time_ms = 104000; frame(); ok(has(q(".bd-cell-pred"), "bd-pred-slower")); ok(!has(q(".bd-cell-pred"), "bd-pred-faster"));
+        timing.best = ""; frame(); eq(cellTime("best"), "-:--.---"); ok(!has(q(".bd-cell-pred"), "bd-pred-slower"), "no best, no colour");
+        timing.ideal = "Outlap"; frame(); eq(cellTime("optimal"), "-:--.---", "a string that is not a time is the placeholder");
+        car.predicted_lap_time_ms = -1; frame(); eq(cellTime("pred"), "-:--.---");
+        timing.ideal = ""; timing.last = "";
     });
 
     t("an invalid lap shows the tag on the top line", function () {
@@ -221,24 +243,34 @@ window.ModelTiming = { best: "", invalid: false };
         car.delta_time_drivername = ""; frame(); ok(!has(root, "bd-hasdriver")); ok(!has(root, "bd-top-on"));
     });
 
+    t("the compact layout: cells and trace hidden, the tag follows the fill, and stops following when told", function () {
+        set("layout", "compact"); ok(has(root, "bd-compact")); eq(state.followOn, true, "follows by default in compact");
+        eq(getComputedStyle(q(".bd-cells")).display, "none", "no cells"); eq(getComputedStyle(q(".bd-tick")).display, "none", "no tick");
+        setDelta(-400); frame();
+        near(sx(right), 0.4, 1e-6); near(tx(main), 20, 1e-6, "the figure row moved to the fill's end"); near(tx(tick), 20, 1e-6);
+        setDelta(600); frame(); near(tx(main), -30, 1e-6, "and to the other side for time lost");
+        set("followFill", false); frame(); eq(tx(main), 0, "centred when not following"); eq(state.followOn, false);
+        set("layout", "full"); set("followFill", true); frame(); eq(tx(main), 0, "never follows in the full layout"); ok(!has(root, "bd-compact"));
+    });
+
     t("options reach the live widget: decimals, range, colours, width, what is shown", function () {
-        const set = function (k, v) { ACEUIAppLoader.settings.set(me.name, k, v); };
         setDelta(-235); frame(); eq(figure.textContent, "-0.235");
         set("decimals", "2"); frame(); eq(figure.textContent, "-0.24", "reformatted although the delta did not move");
-        set("range", "2 s"); frame(); near(sx(left), 0.1175, 1e-3, "half the fill at twice the range");
+        set("range", "2 s"); frame(); near(sx(right), 0.1175, 1e-3, "half the fill at twice the range");
         set("numberColour", "overall"); ok(has(root, "bd-num-overall")); set("numberColour", "white"); ok(has(root, "bd-num-white")); ok(!has(root, "bd-num-overall"));
         set("barColour", "trend"); ok(has(root, "bd-bar-trend"));
         set("width", "narrow"); ok(has(root, "bd-narrow")); set("width", "wide"); ok(has(root, "bd-wide")); ok(!has(root, "bd-narrow"));
         set("showArrows", false); ok(has(root, "bd-noarrows")); eq(getComputedStyle(q(".bd-arrow-l")).display, "none");
-        set("showTrace", false); ok(has(root, "bd-notrace")); eq(state.traceOn, false); eq(getComputedStyle(q(".bd-trace")).display, "none");
-        set("showPredicted", false); set("showBest", false); eq(getComputedStyle(q(".bd-info")).display, "none", "no info row when both are off");
+        set("showOptimal", false); ok(has(root, "bd-nooptimal")); eq(getComputedStyle(q(".bd-cell-optimal")).display, "none");
+        set("showLast", true); ok(!has(root, "bd-nolast")); eq(getComputedStyle(q(".bd-cell-last")).display, "flex", "last cell shown");
+        set("showLast", false); set("showBest", false); set("showPredicted", false); eq(getComputedStyle(q(".bd-cells")).display, "none", "no cell row when every cell is off");
         set("showInvalid", false); timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "invalid ignored when off"); timing.invalid = false;
         set("showDriver", false); car.delta_time_drivername = "Max"; frame(); ok(!has(root, "bd-hasdriver"), "driver ignored when off"); car.delta_time_drivername = "";
         set("trendBand", "coarse"); eq(state.band, 40); set("trendWindow", "0.5 s"); eq(state.windowSamples, 10); eq(state.windowMs, 500);
         set("background", "none"); ok(has(root, "bd-bg-none"));
         ACEUIAppLoader.settings.reset(me.name); frame();
-        eq(figure.textContent, "-0.235"); ok(!has(root, "bd-notrace") && !has(root, "bd-num-white") && !has(root, "bd-bg-none"), "defaults back");
-        eq(state.band, 15); eq(state.windowSamples, 20); eq(state.rangeMs, 1000);
+        eq(figure.textContent, "-0.235"); ok(!has(root, "bd-nooptimal") && !has(root, "bd-num-white") && !has(root, "bd-bg-none"), "defaults back");
+        eq(state.band, 15); eq(state.windowSamples, 20); eq(state.rangeMs, 1000); eq(state.fasterRight, true);
     });
 
     t("HUD hidden: nothing is drawn but the trend keeps sampling", function () {
@@ -249,14 +281,14 @@ window.ModelTiming = { best: "", invalid: false };
         document.body.classList.remove(ACEUIAppLoader.HUD_HIDDEN_CLASS); frame(); ok(figure.textContent !== "sentinel", "drawn again");
     });
 
-    t("attract mode scripts a lap: a net gain by the line, a position that sweeps the lap, a best to compare with", function () {
+    t("attract mode scripts a lap: a net gain by the line, a position that sweeps the lap, laps to compare with", function () {
         const start = B.attractValues(0), mid = B.attractValues(20000), end = B.attractValues(39990);
         eq(start.npos, 0); near(mid.npos, 0.5, 1e-6); ok(end.npos > 0.99);
         ok(B.attractDelta(0.27) > B.attractDelta(0.17), "the first corner costs time"); ok(B.attractDelta(1) < 0, "gains over the lap");
-        eq(start.best, "1:43.445"); eq(start.invalid, false); eq(typeof end.predicted, "number");
+        eq(start.best, "1:43.445"); eq(start.optimal, "1:43.102"); eq(start.last, "1:43.987"); eq(start.invalid, false); eq(typeof end.predicted, "number");
         ok(!state.attract, "off by default");
         B.setAttract(state, true); ok(state.attract); eq(ACEUIAppLoader.settings.get(me.name, "attract"), true);
-        run(200); ok(figure.textContent !== "--.---", "drawing the script");
+        run(200); ok(figure.textContent !== "--.---", "drawing the script"); eq(cellTime("optimal"), "1:43.102");
         B.setAttract(state, false); ACEUIAppLoader.settings.reset(me.name);
     });
 
@@ -264,7 +296,7 @@ window.ModelTiming = { best: "", invalid: false };
         const cancelled = clock.cancelled;
         B.detach(state);
         eq(clock.cancelled, cancelled + 1, "frame cancelled"); eq(state.ui.loop.running, false); eq(state.unsubscribeSettings, null); eq(state.scaler, null);
-        ACEUIAppLoader.settings.set(me.name, "decimals", "2"); ACEUIAppLoader.settings.reset(me.name);
+        set("decimals", "2"); ACEUIAppLoader.settings.reset(me.name);
         eq(B.attract(true), false, "no live widget to toggle");
     });
 
