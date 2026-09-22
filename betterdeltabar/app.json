@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "title": "Better Delta Bar",
+  "styles": [
+    "betterdeltabar.css"
+  ],
+  "scripts": [
+    "betterdeltabar.js"
+  ]
+}

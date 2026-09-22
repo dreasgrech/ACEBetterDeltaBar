@@ -1,0 +1,371 @@
+/*
+ * Better Delta Bar -- widget stylesheet.
+ *
+ * Linked into hud.html by the ACEUIAppLoader after the stock ui.css / uicomponents.css,
+ * so the font variable below is the game's (Rajdhani, with `rajdhani-numerals-mono` for
+ * figures that must not jitter as they change, the pair the stock timers use). The two
+ * colours are the stock delta bar's own: #44EA78 for time gained, #FF1418 for time lost.
+ *
+ * The look follows the stock HUD widgets: a dark translucent panel with a hairline
+ * border and a soft shadow, small radii, dim uppercase labels with bright figures.
+ *
+ * Scaling: every length inside the panel is in em, relative to the root's font-size,
+ * which the loader's me.scale sets from the Panel scale option. The default position
+ * stays in percent: it is a place on the screen, not a size of the panel.
+ *
+ * Classes the script writes (see betterdeltabar.js), all on the root unless said:
+ *   per frame     .bd-gain / .bd-lose / .bd-flat (the trend), .bd-strong (a fast trend),
+ *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
+ *                 .bd-invalid, .bd-hasdriver, .bd-top-on (the top line has something to say);
+ *                 .bd-pred-faster / .bd-pred-slower on the predicted item
+ *   options       .bd-noarrows .bd-nopred .bd-nobest .bd-notrace .bd-noinvalid .bd-nodriver,
+ *                 .bd-narrow / .bd-wide, .bd-num-overall / .bd-num-white (what colours the
+ *                 figure; the default is the trend), .bd-bar-trend (the bar takes the trend's
+ *                 colour instead of its side's), .bd-bg-light / .bd-bg-none
+ *
+ * Cohtml notes: no var() fallbacks (unsupported); flex, box-shadow, text-shadow and
+ * linear-gradient are all used by the stock stylesheets, so they render; the chevrons are
+ * border triangles, which is the one technique here the stock does not use. Nothing here
+ * changes per frame except transforms -- the script only ever writes transform values,
+ * text and classes.
+ */
+
+.ace-betterdeltabar {
+    position: absolute;
+    left: 39%;
+    top: 9%;
+    width: 22em;
+    display: block;
+    background: linear-gradient(rgba(22, 24, 28, 0.74), rgba(8, 9, 11, 0.80));
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 0.3em;
+    box-shadow: 0 0.25em 1em rgba(0, 0, 0, 0.35);
+    padding: 0.3em 0.6em 0.4em 0.6em;
+    color: #fff;
+    font-family: var(--font-family-main);
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.ace-betterdeltabar.bd-narrow {
+    width: 17em;
+}
+
+.ace-betterdeltabar.bd-wide {
+    width: 28em;
+}
+
+/* ---- options: background and what is hidden ------------------------------------- */
+
+.ace-betterdeltabar.bd-bg-light {
+    background: rgba(0, 0, 0, 0.32);
+    border-color: rgba(255, 255, 255, 0.07);
+    box-shadow: none;
+}
+
+.ace-betterdeltabar.bd-bg-none {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* after the backgrounds, so the drag outline wins over a transparent border */
+.ace-betterdeltabar.dragging {
+    border-color: rgba(255, 255, 255, 0.7);
+}
+
+.ace-betterdeltabar.bd-noarrows .bd-arrow,
+.ace-betterdeltabar.bd-nopred .bd-pred,
+.ace-betterdeltabar.bd-nobest .bd-best,
+.ace-betterdeltabar.bd-nopred.bd-nobest .bd-info,
+.ace-betterdeltabar.bd-notrace .bd-trace,
+.ace-betterdeltabar.bd-noinvalid .bd-invalid-tag,
+.ace-betterdeltabar.bd-nodriver .bd-vs {
+    display: none;
+}
+
+/* (ACEUIAppLoader.panel keeps the root invisible via an inline style until its stored position is applied) */
+
+body.hide-hud .ace-betterdeltabar {
+    visibility: hidden;
+}
+
+/* ---- top line: who the delta is against, no reference, invalid ---------------------- */
+
+/* only there while it has something to say (.bd-top-on), so the bar sits at the top otherwise */
+.ace-betterdeltabar .bd-top {
+    display: none;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    height: 1.3em;
+    margin-bottom: 0.15em;
+    font-size: 0.7em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.ace-betterdeltabar.bd-top-on .bd-top {
+    display: flex;
+}
+
+.ace-betterdeltabar .bd-vs,
+.ace-betterdeltabar .bd-status,
+.ace-betterdeltabar .bd-invalid-tag {
+    display: none;
+    white-space: nowrap;
+}
+
+.ace-betterdeltabar.bd-hasdriver .bd-vs {
+    display: block;
+    color: #fff;
+}
+
+.ace-betterdeltabar.bd-noref .bd-status {
+    display: block;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.ace-betterdeltabar.bd-invalid .bd-invalid-tag {
+    display: block;
+    margin-left: auto;
+    padding: 0 0.6em;
+    border-radius: 0.2em;
+    background: #ff1418;
+    color: #fff;
+    font-weight: 700;
+    line-height: 1.5em;
+}
+
+/* the note about no reference needs no room when the top line is otherwise empty; the
+   .bd-nodriver / .bd-noinvalid options above still hide their items when the line shows */
+
+/* ---- the bar: the overall delta, faster grows left, slower grows right ----------------- */
+
+.ace-betterdeltabar .bd-bar {
+    position: relative;
+    height: 0.55em;
+    margin: 0.15em 0 0.2em 0;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 0.15em;
+    overflow: hidden;
+}
+
+.ace-betterdeltabar .bd-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    transform: scaleX(0);
+}
+
+.ace-betterdeltabar .bd-left {
+    right: 50%;
+    transform-origin: 100% 50%;
+    background: linear-gradient(to left, #44ea78 0%, #44ea78 60%, rgba(68, 234, 120, 0.35) 100%);
+}
+
+.ace-betterdeltabar .bd-right {
+    left: 50%;
+    transform-origin: 0 50%;
+    background: linear-gradient(to right, #ff1418 0%, #ff1418 60%, rgba(255, 20, 24, 0.35) 100%);
+}
+
+.ace-betterdeltabar .bd-mid {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    background: rgba(255, 255, 255, 0.75);
+}
+
+/* the bar coloured by the trend instead of by its side */
+.ace-betterdeltabar.bd-bar-trend .bd-left,
+.ace-betterdeltabar.bd-bar-trend .bd-right {
+    background: rgba(255, 255, 255, 0.55);
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-left,
+.ace-betterdeltabar.bd-bar-trend.bd-gain .bd-right {
+    background: #44ea78;
+}
+
+.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-left,
+.ace-betterdeltabar.bd-bar-trend.bd-lose .bd-right {
+    background: #ff1418;
+}
+
+/* ---- the figure, coloured by the trend, with a chevron on the side the time is going ---- */
+
+.ace-betterdeltabar .bd-main {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    height: 2.2em;
+}
+
+.ace-betterdeltabar .bd-delta {
+    min-width: 5em;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.92);
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+    font-size: 2em;
+    font-weight: 700;
+    line-height: 1em;
+}
+
+.ace-betterdeltabar.bd-gain .bd-delta {
+    color: #44ea78;
+}
+
+.ace-betterdeltabar.bd-lose .bd-delta {
+    color: #ff1418;
+}
+
+.ace-betterdeltabar.bd-strong.bd-gain .bd-delta {
+    text-shadow: 0 0 0.35em rgba(68, 234, 120, 0.75);
+}
+
+.ace-betterdeltabar.bd-strong.bd-lose .bd-delta {
+    text-shadow: 0 0 0.35em rgba(255, 20, 24, 0.75);
+}
+
+/* the figure coloured by the overall sign instead (the stock's rule), or not at all: these
+   come after the trend rules and carry one class more, so they win */
+.ace-betterdeltabar.bd-num-overall .bd-delta,
+.ace-betterdeltabar.bd-num-white .bd-delta {
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: none;
+}
+
+.ace-betterdeltabar.bd-num-overall.bd-faster .bd-delta {
+    color: #44ea78;
+}
+
+.ace-betterdeltabar.bd-num-overall.bd-slower .bd-delta {
+    color: #ff1418;
+}
+
+/* no reference lap: a dim placeholder whatever the colour rule */
+.ace-betterdeltabar.bd-noref .bd-delta,
+.ace-betterdeltabar.bd-num-overall.bd-noref .bd-delta {
+    color: rgba(255, 255, 255, 0.4);
+    text-shadow: none;
+}
+
+/* chevrons: border triangles, faded out unless the trend points their way */
+.ace-betterdeltabar .bd-arrow {
+    width: 0;
+    height: 0;
+    margin: 0 0.6em;
+    border-top: 0.5em solid transparent;
+    border-bottom: 0.5em solid transparent;
+    opacity: 0;
+}
+
+.ace-betterdeltabar .bd-arrow-l {
+    border-right: 0.65em solid #44ea78;
+}
+
+.ace-betterdeltabar .bd-arrow-r {
+    border-left: 0.65em solid #ff1418;
+}
+
+.ace-betterdeltabar.bd-gain .bd-arrow-l,
+.ace-betterdeltabar.bd-lose .bd-arrow-r {
+    opacity: 0.9;
+}
+
+.ace-betterdeltabar.bd-strong.bd-gain .bd-arrow-l,
+.ace-betterdeltabar.bd-strong.bd-lose .bd-arrow-r {
+    opacity: 1;
+}
+
+/* ---- the lap trace: the delta across the lap, gained up, lost down ------------------- */
+
+.ace-betterdeltabar .bd-trace {
+    position: relative;
+    height: 2.4em;
+    margin: 0.05em 0 0.3em 0;
+    background: rgba(255, 255, 255, 0.035);
+    border-radius: 0.15em;
+    overflow: hidden;
+}
+
+.ace-betterdeltabar .bd-zero {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.22);
+}
+
+/* laid out once by the script: left and width in % of the trace */
+.ace-betterdeltabar .bd-slot {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.ace-betterdeltabar .bd-up,
+.ace-betterdeltabar .bd-down {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 50%;
+    opacity: 0.85;
+    transform: scaleY(0);
+}
+
+.ace-betterdeltabar .bd-up {
+    bottom: 50%;
+    transform-origin: 50% 100%;
+    background: #44ea78;
+}
+
+.ace-betterdeltabar .bd-down {
+    top: 50%;
+    transform-origin: 50% 0;
+    background: #ff1418;
+}
+
+/* ---- predicted and best lap ---------------------------------------------------------- */
+
+.ace-betterdeltabar .bd-info {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    font-size: 0.7em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.ace-betterdeltabar .bd-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin: 0 0.9em;
+}
+
+.ace-betterdeltabar .bd-val {
+    margin-left: 0.4em;
+    color: #fff;
+    font-weight: 700;
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+}
+
+.ace-betterdeltabar .bd-pred.bd-pred-faster .bd-val {
+    color: #44ea78;
+}
+
+.ace-betterdeltabar .bd-pred.bd-pred-slower .bd-val {
+    color: #ff1418;
+}

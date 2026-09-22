@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Better Delta Bar preview</title>
+<!--
+  Out-of-game preview. Loads the ACEUIAppLoader library from the sibling checkout of the
+  loader repo, then the real stylesheet and script from betterdeltabar/, with fake
+  ModelCurrentCar / ModelTiming objects you drive from the keyboard, inside a 16:9 stand-in
+  for the game's HUD container. Open this file directly in Edge or Chrome:
+
+      dev/preview.html
+
+  What it cannot show: Cohtml quirks (this is Chromium) and the stock HUD around the
+  widget. The game's font is used when tools/preview_fonts.py has copied it into
+  dev/fonts/; otherwise a system font stands in for --font-family-main.
+-->
+<script>
+/**
+ * Flags after the # in the URL, comma-separated: preview.html#reset,shot
+ *   reset    options back to their defaults
+ *   options  the widget's settings window open, as the app drawer opens it in game
+ *   unfold   every section of that window open
+ *   noref    start with no reference lap
+ *   shot     for headless screenshots (a Chromium run with --virtual-time-budget delivers one
+ *            animation frame and no more, so frames are driven from timers, which do advance)
+ *   solo     no control panel: the stage fills the window, for cropping a screenshot
+ */
+window.PreviewFlags = location.hash.slice(1).split(",");
+
+// any uncaught error lands on the page, not only in the browser console
+window.addEventListener("error", function (e) {
+    const node = document.getElementById("errors");
+
+    if (!node) { return; }
+
+    node.hidden = false;
+    node.textContent += (node.textContent ? " | " : "") + "error: " + e.message + " (" + (e.filename || "").split("/").pop() + ":" + e.lineno + ")";
+});
+
+if (window.PreviewFlags.indexOf("shot") >= 0) {
+    window.requestAnimationFrame = function (cb) { return setTimeout(function () { cb(performance.now()); }, 16); };
+    window.cancelAnimationFrame = function (id) { clearTimeout(id); };
+}
+</script>
+<!-- the ACEUIAppLoader library from the sibling checkout, in load order (in game it is part of cohtml.js) -->
+<script src="../../ACEUIAppLoader/tests/lib/lib.js"></script>
+<link rel="stylesheet" type="text/css" href="../betterdeltabar/betterdeltabar.css">
+<style>
+    /* the game's typeface, copied beside this page by tools/preview_fonts.py; a system font stands in when absent */
+    @font-face { font-family: rajdhani; src: url("fonts/rajdhani-regular.ttf"); font-weight: 300; }
+    @font-face { font-family: rajdhani; src: url("fonts/rajdhani-medium.ttf"); font-weight: 400; }
+    @font-face { font-family: rajdhani; src: url("fonts/rajdhani-semibold.ttf"); font-weight: 500; }
+    @font-face { font-family: rajdhani; src: url("fonts/rajdhani-bold.ttf"); font-weight: 600; }
+    @font-face { font-family: rajdhani; src: url("fonts/rajdhani-bold.ttf"); font-weight: 700; }
+    @font-face { font-family: rajdhani-numerals-mono; src: url("fonts/rajdhani-numerals-mono-bold.ttf"); font-weight: 700; }
+    :root { --font-family-main: rajdhani, "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 16px; }
+    html, body { margin: 0; height: 100%; background: #101214; color: #ddd; font-family: var(--font-family-main); }
+    body { display: flex; flex-direction: column; }
+
+    /* 16:9 stage that fits the window, like the game's .absolutecenter at 2560x1440 */
+    #stage-wrap { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; }
+    .absolutecenter { position: relative; aspect-ratio: 16 / 9; height: 100%; max-width: 100%; margin: auto;
+                      background: radial-gradient(ellipse at 50% 60%, #3a4046 0%, #1b1e22 70%); overflow: hidden;
+                      box-shadow: 0 0 0 1px #333; }
+    .absolutecenter .track { position: absolute; left: 0; right: 0; bottom: 0; height: 45%;
+                             background: linear-gradient(#4a4d50, #2c2e31); }
+    .absolutecenter .track::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 0.5%;
+                                     background: repeating-linear-gradient(#ddd 0 8%, transparent 8% 20%); transform: translateX(-50%); }
+
+    #panel { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center;
+             padding: 0.5rem 1rem; background: #181b1e; border-top: 1px solid #333; font-size: 0.8rem; }
+    #panel .key { display: inline-block; min-width: 1.4em; padding: 0 0.3em; border: 1px solid #666; border-radius: 3px;
+                  text-align: center; background: #222; font-weight: 700; }
+    #panel .key.down { background: #44ea78; color: #000; border-color: #44ea78; }
+    #panel button { background: #2a2e33; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 0.2rem 0.6rem; cursor: pointer; }
+    #panel button.on { background: #3aa6ff; color: #000; border-color: #3aa6ff; }
+    #panel .dim { opacity: 0.6; }
+    #panel .error { color: #ff6b6b; font-weight: 700; white-space: pre-wrap; }
+</style>
+</head>
+<body class="hud">
+<div id="stage-wrap">
+    <div class="absolutecenter" id="stage">
+        <div class="track"></div>
+        <div id="betterdeltabar"></div>
+    </div>
+</div>
+<div id="panel">
+    <span>Better Delta Bar <b id="version">?</b> preview</span>
+    <span><span class="key" data-key="arrowup">&uarr;</span> gain time <span class="key" data-key="arrowdown">&darr;</span> lose time
+          <span class="key" data-key="n">N</span> new lap</span>
+    <button id="btn-demo" class="on">auto demo</button>
+    <button id="btn-noref">no reference</button>
+    <button id="btn-invalid">invalid lap</button>
+    <button id="btn-driver">vs driver</button>
+    <button id="btn-hide">hide HUD</button>
+    <button id="btn-focus" class="on">focused car</button>
+    <button id="btn-reset">reset position</button>
+    <button id="btn-options">options</button>
+    <span class="dim">delta <b id="delta">0</b> ms, lap <b id="lap">0.0</b> s, fps <b id="fps">0</b></span>
+    <span class="dim">drag the widget to move it; position and options persist like in game</span>
+    <span id="errors" class="error" hidden></span>
+</div>
+
+<script>
+/** Fake game side: the models the widget reads, driven by keys or a scripted lap. */
+window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
+                           current_lap_time_ms: 0, npos: 0, delta_time_drivername: "" };
+window.ModelTiming = { best: "1:43.445", invalid: false };
+
+const Preview = (function () {
+
+    const SENTINEL = 2147483647;
+    const BEST_MS = 103445;
+    /** The scripted lap: seconds long, and the corners that cost time (share of the lap, width, ms). */
+    const LAP_S = 60;
+    const CORNERS = [
+        { at: 0.12, width: 0.06, cost: 380 },
+        { at: 0.33, width: 0.05, cost: 220 },
+        { at: 0.58, width: 0.08, cost: 540 },
+        { at: 0.84, width: 0.06, cost: 300 }
+    ];
+    /** Time gained on the straights per lap, ms, so the lap nets a gain. */
+    const GAIN_MS = 1600;
+    /** How fast a held arrow key moves the delta, ms per second. */
+    const KEY_RATE = 250;
+    const FPS_WINDOW_MS = 500;
+
+    const state = {
+        held: {},
+        demo: true,
+        noref: false,
+        lapStart: 0,
+        manualDelta: 0,
+        lastNow: 0,
+        frames: 0,
+        fpsAt: 0
+    };
+
+    const q = function (selector) { return document.querySelector(selector); };
+
+    const smoothStep = function (x, from, to) {
+        const k = Math.max(0, Math.min(1, (x - from) / (to - from)));
+
+        return k * k * (3 - 2 * k);
+    };
+
+    /** The scripted delta at lap share `phase`. */
+    const scriptedDelta = function (phase) {
+        let delta = -GAIN_MS * phase;
+
+        CORNERS.forEach(function (corner) { delta += corner.cost * smoothStep(phase, corner.at, corner.at + corner.width); });
+
+        return delta + 30 * Math.sin(phase * Math.PI * 2 * 11);
+    };
+
+    const step = function (now) {
+        const car = window.ModelCurrentCar;
+        const dt = state.lastNow ? Math.min(0.1, (now - state.lastNow) / 1000) : 0;
+        const lapMs = now - state.lapStart;
+        const phase = (lapMs / 1000 / LAP_S) % 1;
+
+        state.lastNow = now;
+
+        if (lapMs >= LAP_S * 1000) { state.lapStart = now; }
+
+        if (!state.demo) {
+            if (state.held.arrowup) { state.manualDelta -= KEY_RATE * dt; }
+
+            if (state.held.arrowdown) { state.manualDelta += KEY_RATE * dt; }
+        } else {
+            state.manualDelta = scriptedDelta(phase);
+        }
+
+        const delta = Math.round(state.manualDelta);
+
+        car.current_lap_time_ms = Math.round(lapMs);
+        car.npos = phase;
+        car.delta_time_ms = state.noref ? 0 : delta;
+        car.delta_time_ms_ui = state.noref ? SENTINEL : 10 * Math.round(delta / 10);
+        car.predicted_lap_time_ms = state.noref ? -1 : BEST_MS + Math.round(scriptedDelta(1) * phase + delta * (1 - phase));
+
+        state.frames += 1;
+
+        if (now - state.fpsAt > FPS_WINDOW_MS) {
+            q("#fps").textContent = Math.round(state.frames * 1000 / (now - state.fpsAt));
+            q("#delta").textContent = delta;
+            q("#lap").textContent = (lapMs / 1000).toFixed(1);
+            state.frames = 0;
+            state.fpsAt = now;
+        }
+
+        requestAnimationFrame(step);
+    };
+
+    const setKey = function (key, down) {
+        const k = key.toLowerCase();
+
+        if (k === "n" && down) { state.lapStart = state.lastNow; return; }
+
+        if (k !== "arrowup" && k !== "arrowdown") { return; }
+
+        state.held[k] = down;
+
+        const cap = document.querySelector(".key[data-key=\"" + k + "\"]");
+
+        if (cap) { cap.classList.toggle("down", down); }
+
+        if (down && state.demo) { setDemo(false); }
+    };
+
+    const setDemo = function (on) {
+        state.demo = on;
+        q("#btn-demo").classList.toggle("on", on);
+    };
+
+    const toggleButton = function (id, get, set) {
+        q(id).addEventListener("click", function () {
+            set(!get());
+            q(id).classList.toggle("on", get());
+        });
+    };
+
+    const wire = function () {
+        q("#version").textContent = ACEUIAppLoader.app("betterdeltabar").version;
+
+        window.addEventListener("keydown", function (e) { setKey(e.key, true); if (e.key.indexOf("Arrow") === 0) { e.preventDefault(); } });
+        window.addEventListener("keyup", function (e) { setKey(e.key, false); });
+
+        q("#btn-demo").addEventListener("click", function () { setDemo(!state.demo); });
+        toggleButton("#btn-noref", function () { return state.noref; }, function (on) { state.noref = on; });
+        toggleButton("#btn-invalid", function () { return window.ModelTiming.invalid; }, function (on) { window.ModelTiming.invalid = on; });
+        toggleButton("#btn-driver", function () { return window.ModelCurrentCar.delta_time_drivername !== ""; },
+            function (on) { window.ModelCurrentCar.delta_time_drivername = on ? "M. Verstappen" : ""; });
+        toggleButton("#btn-hide", function () { return document.body.classList.contains(ACEUIAppLoader.HUD_HIDDEN_CLASS); },
+            function (on) { document.body.classList.toggle(ACEUIAppLoader.HUD_HIDDEN_CLASS, on); });
+        toggleButton("#btn-focus", function () { return window.ModelCurrentCar.has_focused_car; },
+            function (on) { window.ModelCurrentCar.has_focused_car = on; });
+
+        q("#btn-reset").addEventListener("click", function () {
+            ACEUIAppLoader.persist.removeLocal(ACEUIAppLoader.app("betterdeltabar").storageKey);
+
+            location.reload();
+        });
+
+        // the same settings window the app drawer opens in game, over the stage
+        q("#btn-options").addEventListener("click", function () {
+            ACEUIAppLoader.settings.toggle("betterdeltabar");
+        });
+
+        // URL flags (see the top of the file); options persist in localStorage like in game
+        if (window.PreviewFlags.indexOf("reset") >= 0) { ACEUIAppLoader.settings.reset("betterdeltabar"); }
+
+        if (window.PreviewFlags.indexOf("unfold") >= 0) {
+            ACEUIAppLoader.settings.specs("betterdeltabar").forEach(function (spec) {
+                if (spec.type === "section") { ACEUIAppLoader.settings.setCollapsed("betterdeltabar", spec.key, false); }
+            });
+        }
+
+        if (window.PreviewFlags.indexOf("options") >= 0) { ACEUIAppLoader.settings.open("betterdeltabar"); }
+
+        if (window.PreviewFlags.indexOf("noref") >= 0) { state.noref = true; q("#btn-noref").classList.add("on"); }
+
+        if (window.PreviewFlags.indexOf("solo") >= 0) { q("#panel").style.display = "none"; }
+
+        // a screenshot wants a lap under way: the headless run's virtual-time budget decides how far round
+        // it gets (36 s from here lands in the third corner: the lap still up, time being lost right now)
+        if (window.PreviewFlags.indexOf("shot") >= 0) { state.lapStart = performance.now() - LAP_S * 1000 * 0.02; }
+
+        requestAnimationFrame(step);
+    };
+
+    return { wire: wire, state: state };
+}());
+</script>
+<script defer src="../betterdeltabar/betterdeltabar.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () { Preview.wire(); });
+</script>
+</body>
+</html>
