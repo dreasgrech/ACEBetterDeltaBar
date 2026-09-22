@@ -100,8 +100,11 @@ the stock one does.
 
 ## Options
 
-**OPTIONS** in the app drawer opens the settings. Everything you change is kept, through
-the HUD reload and a restart. Click a section header to fold it. Defaults in bold.
+**OPTIONS** in the app drawer opens the settings: every choice is a row of buttons with the
+current one lit, and what is shown is a row of chips you switch on and off. Point at a
+setting and a line at the foot of the window says what it does. Everything you change is
+kept, through the HUD reload and a restart. Click a section header to fold it. Defaults in
+bold.
 
 **Layout**
 - *Layout*: **full** (the figure on the bar, the lap times under it) or compact (a thin
@@ -186,5 +189,5 @@ settings stay in the game's UI settings file, where the game ignores them.
 ---
 
 <div align="center">
-<sub>Better Delta Bar 0.1.0 · needs ACE UI App Loader 0.23.0 or newer</sub>
+<sub>Better Delta Bar 0.1.0 · needs ACE UI App Loader 0.25.0 or newer</sub>
 </div>

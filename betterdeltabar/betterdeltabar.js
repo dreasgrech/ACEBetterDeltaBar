@@ -274,46 +274,55 @@ const BetterDeltaBar = (function () {
         return { key: key, type: "section", label: label, columns: columns, collapsed: collapsed };
     };
 
+    /** A choice drawn as a row of pills, every option on show, the current one lit. */
     const choice = function (key, label, value, options, hint) {
-        return { key: key, type: "choice", label: label, value: value, options: options, hint: hint };
+        return { key: key, type: "choice", label: label, value: value, options: options, hint: hint, segmented: true };
     };
 
     const toggle = function (key, label, value, hint) {
         return { key: key, type: "toggle", label: label, value: value, hint: hint };
     };
 
+    /** A section whose toggles are chips in a wrapping row. */
+    const chips = function (key, label, collapsed) {
+        return { key: key, type: "section", label: label, flow: "chips", collapsed: collapsed };
+    };
+
+    /** The settings window: wide, two controls to a row, hints in one line at the foot for the row under the pointer. */
+    const PANE_WIDTH = "36rem";
+    const PANE_LAYOUT = { width: PANE_WIDTH, hints: "footer" };
+
     const options = settings.define(me.name, [
         // the section's key must differ from the layout option's: the store keys both alike
-        section("shape", "Layout", 1, false),
+        section("shape", "Layout", 2, false),
         choice(SETTING.layout, "Layout", LAYOUT_FULL, [LAYOUT_FULL, LAYOUT_COMPACT],
             "full: the figure on the bar and the lap times under it; compact: a thin bar with the figure in a tag"),
-        me.scaleSpec({ min: SCALE_MIN, max: SCALE_MAX, step: SCALE_STEP }),
         choice(SETTING.width, "Width", WIDTH_NORMAL, [WIDTH_NARROW, WIDTH_NORMAL, WIDTH_WIDE]),
         choice(SETTING.side, "Faster side", SIDE_RIGHT, [SIDE_RIGHT, SIDE_LEFT], "which way the bar grows for time gained; the game's own grows right"),
         choice(SETTING.range, "Bar range", RANGE_DEFAULT, Object.keys(RANGES), "the delta that fills the bar, and the trace"),
         choice(SETTING.decimals, "Decimals", DECIMALS_DEFAULT, Object.keys(DECIMALS)),
-        toggle(SETTING.follow, "Figure follows the fill", true, "compact layout: the tag moves with the end of the bar"),
-        section("colour", "Colour", 1, false),
-        choice(SETTING.numberColour, "Number colour", COLOUR_TREND, [COLOUR_TREND, COLOUR_OVERALL, COLOUR_WHITE],
-            "trend: green while gaining, red while losing, white while steady"),
-        choice(SETTING.barColour, "Bar colour", COLOUR_OVERALL, [COLOUR_OVERALL, COLOUR_TREND],
+        me.scaleSpec({ min: SCALE_MIN, max: SCALE_MAX, step: SCALE_STEP }),
+        section("colour", "Colour", 2, false),
+        choice(SETTING.numberColour, "Number", COLOUR_TREND, [COLOUR_TREND, COLOUR_OVERALL, COLOUR_WHITE],
+            "trend: green while gaining, red while losing, white while steady; overall: the game's own rule"),
+        choice(SETTING.barColour, "Bar", COLOUR_OVERALL, [COLOUR_OVERALL, COLOUR_TREND],
             "overall: green ahead of the reference, red behind"),
         choice(SETTING.trendWindow, "Trend window", TREND_WINDOW_DEFAULT, Object.keys(TREND_WINDOWS), "how far back the trend looks"),
-        choice(SETTING.trendBand, "Trend sensitivity", TREND_BAND_DEFAULT, Object.keys(TREND_BANDS), "fine reacts to less"),
-        section("show", "Show", 2, false),
-        toggle(SETTING.arrows, "Trend chevrons", true),
-        toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar"),
+        choice(SETTING.trendBand, "Trend sensitivity", TREND_BAND_DEFAULT, Object.keys(TREND_BANDS), "fine reacts to less, coarse waits for more"),
+        chips("show", "Show", false),
+        toggle(SETTING.arrows, "Trend chevrons", true, "point the way the end of the bar is moving"),
         toggle(SETTING.optimal, "Session optimal", true),
         toggle(SETTING.best, "Session best", true),
-        toggle(SETTING.pred, "Predicted lap", true),
+        toggle(SETTING.pred, "Predicted lap", true, "green when it beats the best, red when not"),
         toggle(SETTING.last, "Last lap", false),
+        toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar"),
         toggle(SETTING.invalid, "Invalid lap tag", true),
         toggle(SETTING.driver, "Driver name", true, "when the delta is against another driver"),
+        toggle(SETTING.follow, "Figure follows the fill", true, "compact layout: the tag moves with the end of the bar"),
         section("look", "Look", 2, true),
         choice(SETTING.bg, "Background", BACKGROUND_DARK, [BACKGROUND_DARK, BACKGROUND_LIGHT, BACKGROUND_NONE]),
-        section("demo", "Demo", 1, true),
         toggle(SETTING.attract, "Attract mode", false, "a scripted lap, for recording without driving")
-    ]);
+    ], PANE_LAYOUT);
 
     /** The option keys that change what is drawn or how, and nothing else. */
     const VIEW_KEYS = [SETTING.layout, SETTING.width, SETTING.side, SETTING.range, SETTING.decimals, SETTING.follow,
