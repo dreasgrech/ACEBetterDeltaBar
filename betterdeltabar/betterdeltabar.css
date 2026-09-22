@@ -566,6 +566,21 @@ body.hide-hud .ace-betterdeltabar {
     background: rgba(255, 255, 255, 0.55);
 }
 
+/* the background option in compact: the bar's track and the tag, since there is no panel */
+.ace-betterdeltabar.bd-compact.bd-bg-light .bd-bar,
+.ace-betterdeltabar.bd-compact.bd-bg-light .bd-delta {
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.ace-betterdeltabar.bd-compact.bd-bg-none .bd-bar {
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.ace-betterdeltabar.bd-compact.bd-bg-none .bd-delta {
+    background: transparent;
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
+}
+
 /* the figure under the bar, in a tag; the script moves the whole row to the fill's end when asked */
 .ace-betterdeltabar.bd-compact .bd-main {
     top: 1.05em;

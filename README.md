@@ -115,8 +115,6 @@ bold.
   does, or left, as iRacing's does.
 - *Bar range*: the delta that fills the bar (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
-- *Figure follows the fill*: **on**. In the compact layout the tag moves with the end of the
-  bar; off keeps it centred.
 
 **Colour**
 - *Number colour*: **trend** (green while gaining, red while losing, white while steady),
@@ -127,12 +125,17 @@ bold.
   more before it changes colour.
 
 **Show**
-- *Trend chevrons*, *session optimal*, *session best*, *predicted lap*, *invalid lap tag*,
-  *driver name*: each **on**. *Lap trace* and *last lap*: **off**. The compact layout shows
-  none of the lap times or the trace.
+- For both layouts: *Trend chevrons*, *invalid lap tag*, *driver name*: each **on**.
+- Full layout only: *session optimal*, *session best*, *predicted lap*: **on**; *last lap*
+  and *lap trace*: **off**.
+- Compact layout only: *Figure follows the fill*: **on**. Off keeps the tag centred.
+
+The window shows only the switches the layout on screen has, and swaps them when you
+change the layout.
 
 **Look**
-- *Background*: **dark**, light or none.
+- *Background*: **dark**, light or none. In the full layout that is the panel; in the
+  compact one, the bar's track and the tag.
 
 **Demo**
 - *Attract mode*, **off**: a scripted lap, for recording without driving.

@@ -46,6 +46,13 @@ bar's, so half the width times the share lands exactly on the fill's end. The ti
 same trick on its own full-width track, which is why a 2 px tick does not get thinner as
 the fill scales: it is never inside the scaled element.
 
+Every option applies to both layouts except the ones for things only one layout has: the
+cell switches and the trace are the full layout's, the follow-the-fill switch the compact
+one's. Those carry a `when` (loader 0.25.0) so the settings window draws only the switches
+of the layout on screen and swaps them the moment the layout changes; a hidden switch keeps
+its value. Background applies to both: the panel in full, the bar's track and the tag in
+compact.
+
 One trap found by the harness: a `section` spec and a value spec must not share a key
 (the first version had a "layout" section and a "layout" choice, and the choice could not
 be set).

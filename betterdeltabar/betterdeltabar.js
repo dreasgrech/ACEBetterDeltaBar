@@ -279,14 +279,25 @@ const BetterDeltaBar = (function () {
         return { key: key, type: "choice", label: label, value: value, options: options, hint: hint, segmented: true };
     };
 
-    const toggle = function (key, label, value, hint) {
-        return { key: key, type: "toggle", label: label, value: value, hint: hint };
+    /** A toggle; `when` (optional) is the layout it belongs to, and the loader draws it only in that layout. */
+    const toggle = function (key, label, value, hint, when) {
+        return { key: key, type: "toggle", label: label, value: value, hint: hint, when: when };
     };
 
     /** A section whose toggles are chips in a wrapping row. */
     const chips = function (key, label, collapsed) {
         return { key: key, type: "section", label: label, flow: "chips", collapsed: collapsed };
     };
+
+    /**
+     * Which layout is on. Every option applies to both layouts except the ones that
+     * only exist in one: the lap-time cells and the trace are the full layout's, the
+     * figure following the fill is the compact one's. Those carry one of these, so the
+     * settings window shows only what the layout on screen has, and swaps when it changes.
+     * Called by the loader at render time, after `options` exists.
+     */
+    const inFull = function () { return options[SETTING.layout] !== LAYOUT_COMPACT; };
+    const inCompact = function () { return options[SETTING.layout] === LAYOUT_COMPACT; };
 
     /** The settings window: wide, two controls to a row, hints in one line at the foot for the row under the pointer. */
     const PANE_WIDTH = "36rem";
@@ -311,16 +322,17 @@ const BetterDeltaBar = (function () {
         choice(SETTING.trendBand, "Trend sensitivity", TREND_BAND_DEFAULT, Object.keys(TREND_BANDS), "fine reacts to less, coarse waits for more"),
         chips("show", "Show", false),
         toggle(SETTING.arrows, "Trend chevrons", true, "point the way the end of the bar is moving"),
-        toggle(SETTING.optimal, "Session optimal", true),
-        toggle(SETTING.best, "Session best", true),
-        toggle(SETTING.pred, "Predicted lap", true, "green when it beats the best, red when not"),
-        toggle(SETTING.last, "Last lap", false),
-        toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar"),
         toggle(SETTING.invalid, "Invalid lap tag", true),
         toggle(SETTING.driver, "Driver name", true, "when the delta is against another driver"),
-        toggle(SETTING.follow, "Figure follows the fill", true, "compact layout: the tag moves with the end of the bar"),
+        toggle(SETTING.optimal, "Session optimal", true, "your best sectors added up", inFull),
+        toggle(SETTING.best, "Session best", true, null, inFull),
+        toggle(SETTING.pred, "Predicted lap", true, "green when it beats the best, red when not", inFull),
+        toggle(SETTING.last, "Last lap", false, null, inFull),
+        toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar", inFull),
+        toggle(SETTING.follow, "Figure follows the fill", true, "the tag moves with the end of the bar", inCompact),
         section("look", "Look", 2, true),
-        choice(SETTING.bg, "Background", BACKGROUND_DARK, [BACKGROUND_DARK, BACKGROUND_LIGHT, BACKGROUND_NONE]),
+        choice(SETTING.bg, "Background", BACKGROUND_DARK, [BACKGROUND_DARK, BACKGROUND_LIGHT, BACKGROUND_NONE],
+            "full: the panel; compact: the bar and the tag"),
         toggle(SETTING.attract, "Attract mode", false, "a scripted lap, for recording without driving")
     ], PANE_LAYOUT);
 

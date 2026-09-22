@@ -271,6 +271,30 @@ window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
         set("layout", "full"); set("followFill", true); frame(); eq(tx(main), 0, "never follows in the full layout"); ok(!has(root, "bd-compact"));
     });
 
+    t("the settings window shows only what the layout on screen has, and swaps when the layout changes", function () {
+        const pane = document.createElement("div");
+        center.appendChild(pane);
+        ACEUIAppLoader.settings.render(me.name, pane);
+        const chip = function (label) {
+            return Array.prototype.filter.call(pane.querySelectorAll("span"), function (el) { return el.textContent === label && el.style.borderRadius === "0.9rem"; })[0];
+        };
+        const cells = chip("Session optimal"), trace = chip("Lap trace"), follow = chip("Figure follows the fill"), arrows = chip("Trend chevrons");
+        ok(cells && trace && follow && arrows, "chips drawn");
+        eq(cells.style.display, "inline-flex", "full layout: the cell switches are there"); eq(trace.style.display, "inline-flex");
+        eq(follow.style.display, "none", "and the compact-only switch is not"); eq(arrows.style.display, "inline-flex", "a switch for both layouts is always there");
+        set("layout", "compact");
+        eq(cells.style.display, "none", "compact: the cell switches go"); eq(trace.style.display, "none"); eq(follow.style.display, "inline-flex", "and the follow switch comes");
+        ok(pane.textContent.indexOf("Background") >= 0, "background stays: it applies to both");
+        eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.94)", "compact bar, dark background");
+        set("background", "none"); eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.12)", "background none dims the compact bar's track");
+        eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0)", "and clears the tag");
+        set("background", "light"); eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0.55)", "light: a lighter tag");
+        ACEUIAppLoader.settings.reset(me.name); frame();
+        eq(cells.style.display, "inline-flex", "back to full: the cells return"); eq(follow.style.display, "none");
+        ACEUIAppLoader.settings.teardown(me.name);
+        pane.remove();
+    });
+
     t("options reach the live widget: decimals, range, colours, width, what is shown", function () {
         setDelta(-235); frame(); eq(figure.textContent, "-0.235");
         set("decimals", "2"); frame(); eq(figure.textContent, "-0.24", "reformatted although the delta did not move");
