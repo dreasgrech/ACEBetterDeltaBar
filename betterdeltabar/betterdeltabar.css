@@ -21,11 +21,11 @@
  * Classes the script writes (see betterdeltabar.js), all on the root unless said:
  *   per frame     .bd-gain / .bd-lose / .bd-flat (the trend), .bd-strong (a fast trend),
  *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
- *                 .bd-invalid, .bd-hasdriver, .bd-top-on (the top line has something to say);
+ *                 .bd-invalid, .bd-pit, .bd-hasdriver, .bd-top-on (the top line has something to say);
  *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
  *   options       .bd-compact; .bd-faster-left (the bar grows left for time gained, and the
  *                 chevrons follow); .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
- *                 .bd-notrace .bd-noinvalid .bd-nodriver; .bd-narrow / .bd-wide;
+ *                 .bd-notrace .bd-noinvalid; .bd-narrow / .bd-wide;
  *                 .bd-num-overall / .bd-num-white (what colours the figure; the default is the
  *                 trend); .bd-bar-trend (the fill takes the trend's colour instead of the
  *                 sign's); .bd-bg-light / .bd-bg-none
@@ -92,8 +92,7 @@
 .ace-betterdeltabar.bd-nopred .bd-cell-pred,
 .ace-betterdeltabar.bd-nooptimal.bd-nobest.bd-nolast.bd-nopred .bd-cells,
 .ace-betterdeltabar.bd-notrace .bd-trace,
-.ace-betterdeltabar.bd-noinvalid .bd-invalid-tag,
-.ace-betterdeltabar.bd-nodriver .bd-vs {
+.ace-betterdeltabar.bd-noinvalid .bd-invalid-tag {
     display: none;
 }
 
@@ -195,6 +194,19 @@ body.hide-hud .ace-betterdeltabar {
     border-radius: 0.15em;
     background: rgba(255, 20, 24, 0.14);
     color: #ff7a7c;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    line-height: 1.35em;
+}
+
+/* the same tag, quiet, for a lap that does not count with nothing wrong: PIT LANE, OUTLAP */
+.ace-betterdeltabar.bd-pit .bd-invalid-tag {
+    display: block;
+    padding: 0 0.5em;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 0.15em;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.65);
     font-weight: 700;
     letter-spacing: 0.1em;
     line-height: 1.35em;

@@ -2,6 +2,7 @@
 render_states.py - the widget in every state, both layouts side by side, on one sheet.
 
     python tools/render_states.py            -> dev/states.png
+    python tools/render_states.py --reasons  -> dev/reasons.png (every reason the game has, on the tag)
 
 Renders dev/preview.html headless once per state and layout (the preview's URL flags force
 the state: see the top of that file), crops the widget out of each and lays the crops out in
@@ -10,11 +11,16 @@ line by line: same figures, same colours, same chevron sides, same tags, and onl
 trace and tick differing. This is the consistency check the layouts are held to; run it
 after any change to the stylesheet or the render code and look at the sheet.
 
+The reasons sheet puts every member of the game's InvestigationType enum (read from the
+widget's own table) on the invalid tag, in the tightest case the line can meet: a driver
+named on the left, no reference lap, the narrow width. Look at it for the fit of the text.
+
 Needs a Chromium-based browser (found the way the test kit finds one) and the loader repo
 beside this one, for its headless helper. The game's font shows when tools/preview_fonts.py
 has copied it into dev/fonts/.
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -27,7 +33,9 @@ sys.path.insert(0, os.path.join(LOADER, "tools"))
 import headless  # noqa: E402
 
 URL = "file:///" + os.path.join(ROOT, "dev", "preview.html").replace("\\", "/")
+JS = os.path.join(ROOT, "betterdeltabar", "betterdeltabar.js")
 OUT = os.path.join(ROOT, "dev", "states.png")
+OUT_REASONS = os.path.join(ROOT, "dev", "reasons.png")
 PROFILE = os.path.join(ROOT, "dev", ".states-profile")
 # the widget sits at left 34% / top 8% of a 1600x900 stage, rendered at 2x: this crop holds both layouts
 CROP = (1000, 60, 2200, 420)
@@ -42,7 +50,9 @@ STATES = [
     ("gaining, lap up", "hold=22"),
     ("gaining + cut notice", "hold=22,cut"),
     ("no ref + cut + driver", "noref,hold=25,cut,driver"),
-    ("flag up from the start (pit exit): no tag", "hold=22,flag"),
+    ("in the pit lane: the quiet PIT LANE tag", "noref,hold=25,pit"),
+    ("outlap (the flag rose at the pit exit): OUTLAP, not red", "hold=22,outlap"),
+    ("a cut on the outlap: the cut wins", "hold=22,outlap,cut"),
     ("faster side left, losing", "hold=8,set:fasterSide=left"),
     ("faster side left, gaining", "hold=22,set:fasterSide=left"),
     ("background light", "hold=8,set:background=light"),
@@ -52,9 +62,22 @@ STATES = [
     ("wide", "hold=8,set:width=wide"),
     ("number colour overall", "hold=22,set:numberColour=overall"),
     ("bar colour trend", "hold=22,set:barColour=trend"),
-    ("no chevrons, no driver, decimals 2", "hold=22,driver,set:showArrows=false,set:showDriver=false,set:decimals=2"),
+    ("no chevrons, decimals 2, driver named", "hold=22,driver,set:showArrows=false,set:decimals=2"),
     ("hide until a reference lap (nothing to see)", "noref,hold=25,set:hideWithoutReference=true"),
 ]
+
+
+def reasons():
+    """The widget's reason table, in the script's order: (key, the game's words)."""
+    with open(JS, encoding="utf-8") as f:
+        table = re.search(r"const REASONS = \{(.*?)\};", f.read(), re.S).group(1)
+    return re.findall(r"(InvestigationType_\w+): \"([^\"]+)\"", table)
+
+
+def reason_states():
+    """Every reason on the tag, in the tightest case: a driver named, no reference, the narrow width."""
+    return [(words + "  (" + key.replace("InvestigationType_", "") + ")", "noref,hold=25,driver,cut,reason=" + key + ",set:width=narrow")
+            for key, words in reasons()]
 
 
 def shot(browser, flags, out):
@@ -65,12 +88,12 @@ def shot(browser, flags, out):
     return Image.open(out).crop(CROP)
 
 
-def main():
+def render(states, out_path):
     browser = headless.find_browser()
     if not browser:
         raise SystemExit("no Chromium-based browser found (set ACE_BROWSER)")
     rows = []
-    for label, flags in STATES:
+    for label, flags in states:
         pair = []
         for layout in ("full", "compact"):
             out = os.path.join(PROFILE, f"{layout}-{len(rows)}.png")
@@ -88,10 +111,17 @@ def main():
         for j, im in enumerate(pair):
             sheet.paste(im.resize((w, h), Image.LANCZOS), (20 + j * (w + 20), y))
         draw.text((20, y + h + 2), label, fill=(200, 200, 200))
-    sheet.save(OUT)
+    sheet.save(out_path)
     swept = headless.sweep_orphans()
-    print("wrote", OUT, sheet.size, f"({swept} leaked browser process(es) swept)")
+    print("wrote", out_path, sheet.size, f"({swept} leaked browser process(es) swept)")
+
+
+def main(argv):
+    if "--reasons" in argv:
+        render(reason_states(), OUT_REASONS)
+    else:
+        render(STATES, OUT)
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

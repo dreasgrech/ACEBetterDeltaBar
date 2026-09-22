@@ -23,7 +23,7 @@ def read(path):
 
 class Tests(AppTests):
     ROOT = ROOT
-    MIN_CASES = 37
+    MIN_CASES = 44
     HOT_PATH = ("// ---- rendering", "// ---- lifecycle")
 
 
@@ -63,7 +63,7 @@ class WidgetContractTests(unittest.TestCase):
     def test_every_class_the_script_writes_is_in_the_stylesheet(self):
         for cls in ("bd-gain", "bd-lose", "bd-flat", "bd-strong", "bd-faster", "bd-slower", "bd-noref", "bd-invalid",
                     "bd-hasdriver", "bd-top-on", "bd-pred-faster", "bd-pred-slower", "bd-compact", "bd-faster-left", "bd-noarrows", "bd-nooptimal",
-                    "bd-nobest", "bd-nolast", "bd-nopred", "bd-notrace", "bd-noinvalid", "bd-nodriver", "bd-hide-noref", "bd-narrow", "bd-wide",
+                    "bd-nobest", "bd-nolast", "bd-nopred", "bd-notrace", "bd-noinvalid", "bd-hide-noref", "bd-narrow", "bd-wide",
                     "bd-num-overall", "bd-num-white", "bd-bar-trend", "bd-bg-light", "bd-bg-none"):
             self.assertIn("." + cls, self.css, cls)
 
@@ -79,6 +79,46 @@ class WidgetContractTests(unittest.TestCase):
     def test_the_stock_colours(self):
         self.assertIn("#44ea78", self.css.lower())
         self.assertIn("#ff1418", self.css.lower())
+
+
+class ReasonTableTests(unittest.TestCase):
+    """The reasons the widget can name are the game's own enum (PenaltySystem.proto), checked against the ACEGameInternals copy when it is beside this repo."""
+
+    PROTO = os.path.join(os.path.dirname(ROOT), "ACEGameInternals", "proto", "0.9.1-release.6", "PenaltySystem.proto")
+
+    def keys(self):
+        table = re.search(r"const REASONS = \{(.*?)\};", read(JS), re.S).group(1)
+        return re.findall(r"(InvestigationType_\w+):", table)
+
+    def test_every_enum_member_is_in_the_table(self):
+        if not os.path.isfile(self.PROTO):
+            self.skipTest("no ACEGameInternals checkout beside this repo")
+        enum = re.search(r"enum InvestigationType \{(.*?)\}", read(self.PROTO), re.S).group(1)
+        members = re.findall(r"(InvestigationType_\w+)\s*=", enum)
+        self.assertTrue(len(members) >= 20, members)
+        for member in members:
+            self.assertIn(member, self.keys(), member + " is in the game's enum but not in REASONS")
+
+    def test_every_penalty_type_of_the_game_is_covered(self):
+        """The script names the types that void a lap; the harness must exercise every other member of the game's enum as a non-invalidation."""
+        if not os.path.isfile(self.PROTO):
+            self.skipTest("no ACEGameInternals checkout beside this repo")
+        enum = re.search(r"enum PenaltyType \{(.*?)\}", read(self.PROTO), re.S).group(1)
+        members = re.findall(r"(PenaltyType_\w+)\s*=", enum)
+        self.assertTrue(len(members) >= 15, members)
+        js = read(JS)
+        harness = read(os.path.join(ROOT, "tests", "widget", "harness.html"))
+        invalidating = re.findall(r'const INVALID\w*_TYPE = "(PenaltyType_\w+)"', js)
+        self.assertEqual(sorted(invalidating), ["PenaltyType_InvalidLap", "PenaltyType_InvalidNextLap"])
+        for member in members:
+            if member not in invalidating:
+                self.assertIn('"' + member + '"', harness, member + " is in the game's enum but the harness never sends it")
+
+    def test_the_table_has_no_duplicates_and_english_words(self):
+        keys = self.keys()
+        self.assertEqual(len(keys), len(set(keys)))
+        for value in re.findall(r'InvestigationType_\w+: "([^"]+)"', read(JS)):
+            self.assertRegex(value, r"^[A-Z][A-Za-z ]+$", value)
 
 
 class ReadmeTests(unittest.TestCase):

@@ -11,6 +11,7 @@ dev/fonts/
 
 # the state sheet and the browser profile tools/render_states.py writes
 dev/states.png
+dev/reasons.png
 dev/.states-profile/
 
 # the release download, written by ACEUIAppLoader/tools/release_app.py

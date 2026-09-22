@@ -18,7 +18,8 @@ Everything is read from the globals the stock UI mirrors every frame (see
 | `ModelCurrentCar.delta_time_drivername` | who the delta is against when it is not your own lap | the "vs Name" line |
 | `ModelTiming.best` | the best lap as the game formats it, `""` when none | shown as is; parsed to ms to colour the prediction |
 | `ModelTiming.ideal` / `.last` | the session optimal (best sectors added up) and the last lap, formatted | the other two cells, shown as they come |
-| `ModelTiming.invalid` | the lap is invalid; **true from the first metre of the lap out of the pits** (measured: `lap time 468 ms, invalid true`), and a cut on that lap does not change it | one of two sources for the INVALID tag: the flag counts only when it rises during a lap that started valid (latched over the first 500 ms, `lapStartedInvalid`); a pit exit shows nothing |
+| `ModelTiming.invalid` | the lap is invalid; **true on any lap the car spent time in the pit lane on**: from the first metre of the lap out of the pits (measured: `lap time 468 ms, invalid true`), or from the pit exit when the timing line lies inside the pit lane; a cut on such a lap does not change it | one of two sources for the INVALID tag: the flag counts only when it rises during a lap that started valid AND never touched the pit lane (latched over the first 500 ms, `lapStartedInvalid`; the pit-lane visit is `pitLap`); a pit lap gets the quiet PIT LANE / OUTLAP tag instead |
+| `ModelCurrentCar.car_location` | where the car is, `CarLocation.Type` as a string: `Pitlane`, `Pitentry`, `Pitexit`, `Track` (`Unassigned` exists too); the stock pit-limiter warning compares it to `"Pitlane"` and `"Pitentry"` | the pit lane (any of the three) makes the lap a pit lap, remembered through the reload; PIT LANE while in it, OUTLAP once out with the flag still up |
 | `engine.on("UINotification")` | the game's UI notifications, the event the stock top-right box draws from; a lap invalidation is a `UINotificationType_SessionPenalty` whose `tuples[0].values` are `["{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"]` for a track-limits cut in practice (measured 2026-09-22 16:07, several times per cut) | the other source, and the one that works on a first lap: that exact type key and the car number matching the focused leaderboard line marks the lap cut until the next lap. The key is a l10n id (not in the stock `ePenaltyType` table), so it is the same in every language; the widget logs every penalty notification it sees. The notice comes once and Escape/resume rebuilds the page, so the cut is kept through `me.remember` keyed by `low_frequency.total_lap_count` (or the lap time and the flag when there is none) and restored on the first frame if it is still that lap |
 
 Positive is time lost, as everywhere in the game. The stock widget clamps the delta to
@@ -73,15 +74,37 @@ line: `new lap: lap time 35 ms, invalid false` in the same frame the lap time re
 (16:16:47.276) and the flag rises 19 ms later (`invalid true, lap started invalid false`), so
 both sources agree and either alone would do there. The invalid tag therefore appears in
 exactly two cases: the game's own lap-invalidated notice for our car, or the flag rising on a
-lap it was down for; it clears when the lap time resets (the line, or a return to the pits),
-and a HUD reload keeps it only for the very lap it was set on.
+lap it was down for and driven wholly on the track; it clears when the lap time resets (the
+line, or a return to the pits), and a HUD reload keeps it only for the very lap it was set on.
+
+**What the second log proved (2026-09-22 17:48, practice, four pit exits).** On that track
+the timing line lies inside the pit lane. Every exit read the same: the lap out of the box
+flagged from its first metre; the line crossed still in the pit lane, `new lap: lap time 34
+ms, invalid false`; the game's "Zone Exit" 50 to 170 ms later; and the flag up again at 290,
+751, 502 and 333 ms into the lap, within 30 ms of the game logging the car's pit slot as
+`None`, i.e. the car joining the track. Three of the four exits had a pit-speeding notice
+(`PenaltyType_Warning`, `InvestigationType_Speeding`, sent in the pit lane), one had none, and
+the flag behaved identically, so the warning invalidates nothing: the game's own log says so
+too, `Penalty Type PenaltyType_Warning has no tranformation`. The invalidation is the pit
+exit itself, filed on whichever lap it falls in. That is why the car's location is read: the
+tag for such a lap is OUTLAP, quiet, not red, and the 30 s "recent notice" attribution that
+would have printed INVALID · SPEEDING on it was removed the same day.
 
 ## The two layouts are held to the same states
 
-`python tools/render_states.py` renders the widget in seventeen states in both layouts and
+`python tools/render_states.py` renders the widget in nineteen states in both layouts and
 puts them side by side in `dev/states.png` (not committed). The rule it checks: the two
 columns show the same figures, colours, chevron sides, fills, tags and gaps, and differ only
-in what the compact layout has no room for (cells, trace, tick). The first run of it
+in what the compact layout has no room for (cells, trace, tick). `--reasons` renders a second
+sheet, `dev/reasons.png`: every reason the game has on the invalid tag, in the tightest case
+the line can meet (a driver named, no reference, the narrow width). Checked 2026-09-22: all
+21 fit in both layouts with the tag whole; what gives is the left of the line, as designed
+(the note clips first, then the driver's name, down to "vs M. Verstap" under the longest
+reason in compact narrow). The preview has the same check by eye: a reason picker beside its
+cut button (and the `reason=Name` flag) for one at a time, and an "all reasons" button (the
+`reasons` flag) that opens a gallery of the live widget cloned once per reason and layout,
+with the tag text the widget itself would write, under the widget's current options; two
+checkboxes add or drop the driver's name and the no-reference note. The first run of it
 (2026-09-22) found three faults the harness had not: the game's `-1` for "no predicted lap"
 passed the lap-time sanity check and coloured the PREDICTED cell green against the best (now
 a lap time must be positive); "vs Name" and the no-reference note ran together (a gap); and
@@ -120,11 +143,51 @@ After those, five passes in a row found nothing: the state matrix re-rendered, t
 zip's contents, Pedal Graph's suite against the tightened kit, a privacy sweep of the change
 set, and the preview's flags and buttons against its code.
 
+**The reason on the tag.** The notice's second value is a reason key
+(`InvestigationType_Racecar_Cut` for the cut measured); the stock box prints it through
+`engine.translate`, which turns it into "Track Limits". The widget does the same, falls back
+to the key with its prefix and underscores dropped when the engine has no translation, and
+shows it after INVALID; the reason is remembered with the cut through the reload. The keys
+are the members of the game's `InvestigationType` enum (`PenaltySystem.proto`, twenty of
+them, `Racecar_Cut` to `StartFromPit`), and their English words are in the game's own
+localisation table (`uiresources\localization\en.loc` inside `content.kspkg`: `Track
+Limits`, `Pitlane Speeding`, `Wrong Way`, ...), so the widget carries the whole table as a
+fallback and a contract test holds it to the enum; the engine's translation is still asked
+first so the player's language wins. The flag alone carries no reason of its own: a flag
+rising on a lap driven wholly on the track, with no notice, reads plain INVALID. The enum
+also has two lap invalidations as penalty types, `PenaltyType_InvalidLap` and
+`PenaltyType_InvalidNextLap` ("Invalid Lap" in the table); neither has been seen in a
+notice yet, but a notice of the first marks this lap and one of the second the lap that
+follows, from its first frame, with the notice's reason, remembered through the reload.
+
+**The flag is the truth, the notice the reason.** Which penalties also void the lap is the
+game's decision per session, and the notice's type does not say so for the dozen real
+penalty types (Warning to Disqualification), so the widget does not guess from the type: a
+flag rising on a lap driven wholly on the track is an invalidation, and it takes its reason
+from the last notice for our car within 500 ms (the measured gap between a cut's notice and
+its flag is 19 ms), or a notice within 500 ms after the flag fills the reason in. Outside the
+window the tag reads plain INVALID. The window is safe against the pit-speeding case because
+a pit lap's flag is never a cut, and against a warning followed by a real cut because the
+cut's own notice always wins. The harness sends every one of the 21 reasons on each of the
+three invalidating types and every one of the 14 non-invalidating types, and a contract test
+holds both lists to the game's enums.
+
+**Two labels on game fields the game does not explain.** `delta_time_drivername` has been
+empty in every session measured; the stock bar shows it above its bar when it is not, and so
+does this widget ("vs Name"), with no switch: a switch for a line that never appeared did
+nothing visible and was removed (2026-09-22). `ModelTiming.ideal` is shown as SESSION OPTIMAL
+on the reading that an ideal lap is the session's best sectors added up; the stock UI never
+displays the field, so this is not confirmed. The widget logs `laps: best, ideal, last` every
+time one of them changes, so a session's log tells: the ideal must never exceed the best, and
+must fall after a lap that beat a sector without beating the lap.
+
 **Edges that are known and left.** A cut in the last metres of a lap whose notice arrives
 after the line would mark the NEW lap; the notices measured came within 20 ms of the flag,
 so this needs a cut across the timing line itself, and the flag path would still be right
-about the old lap. A cut on a lap flagged from its first metre (the pit exit) can only be
-seen through the notice; no notice, no tag.
+about the old lap. A cut on a pit lap can only be seen through the notice, and it wins over
+the quiet tag; no notice, OUTLAP. A build of the game that stopped publishing
+`car_location` would leave every pit exit unnamed: a lap flagged from its first metre shows
+nothing, as before, and one flagged at the pit exit after the line would read plain INVALID.
 
 ## The trend
 

@@ -28,7 +28,13 @@
  *            animation frame and no more, so frames are driven from timers, which do advance)
  *   solo     no control panel: the stage fills the window, for cropping a screenshot
  *   cut      the game's lap-invalidated notice has arrived for this lap
+ *   reason=Name   the reason that notice carries: any member of the game's InvestigationType enum, with or
+ *            without the prefix (reason=Driver_Ran_No_Stint gives "INVALID · FAILED TO MEET STINT REQUIREMENT")
+ *   reasons  open the gallery: every reason on the tag at once, both layouts, with the widget's current
+ *            options (the "all reasons" button does the same)
  *   flag     the timing model's invalid flag is up (a lap that went invalid)
+ *   pit      the car is in the pit lane (flag up, as the game keeps it there)
+ *   outlap   the lap began in the pit lane and the car is out on the track now, the flag up
  *   driver   the delta is against another driver
  *   hold=N   start the scripted lap N seconds in (with `shot`, the state to photograph a moment later, trend and all)
  *   set:key=value   any option, e.g. set:fasterSide=left or set:background=none (repeatable)
@@ -82,7 +88,19 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
     #panel .key.down { background: #44ea78; color: #000; border-color: #44ea78; }
     #panel button { background: #2a2e33; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 0.2rem 0.6rem; cursor: pointer; }
     #panel button.on { background: #3aa6ff; color: #000; border-color: #3aa6ff; }
+    #panel select { background: #2a2e33; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 0.2rem 0.3rem; font: inherit; }
     #panel .dim { opacity: 0.6; }
+
+    /* the reasons gallery: copies of the live widget, one per reason and layout, over the whole page */
+    #gallery { position: fixed; inset: 0; z-index: 10; overflow: auto; background: #101214; padding: 1rem 1.5rem 3rem; }
+    #gallery .head { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: #bbb; }
+    #gallery .head label { display: inline-flex; gap: 0.3rem; align-items: center; cursor: pointer; }
+    #gallery .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 3rem; align-items: start; padding: 0.4rem 0 1rem; border-top: 1px solid #23262a; }
+    #gallery .row .label { grid-column: 1 / -1; font-size: 0.75rem; color: #8a9096; padding-bottom: 0.2rem; }
+    #gallery .col { position: relative; min-height: 5em; padding-top: 2.4em; overflow: hidden; }
+    /* the copies are laid out in the flow: the panel's own position and hiding do not apply to them */
+    #gallery .ace-betterdeltabar { position: relative !important; left: 0 !important; top: 0 !important; transform: none !important;
+                                   visibility: visible !important; display: block !important; }
     #panel .error { color: #ff6b6b; font-weight: 700; white-space: pre-wrap; }
 </style>
 </head>
@@ -93,6 +111,16 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
         <div id="betterdeltabar"></div>
     </div>
 </div>
+<div id="gallery" hidden>
+    <div class="head">
+        <b>Every reason the game has, on the tag</b>
+        <span class="dim">copies of the live widget, so they carry its options (width, scale, background); change an option and reopen</span>
+        <label><input type="checkbox" id="gallery-driver" checked> driver named</label>
+        <label><input type="checkbox" id="gallery-noref" checked> no reference lap</label>
+        <button id="btn-gallery-close">close</button>
+    </div>
+    <div class="rows"></div>
+</div>
 <div id="panel">
     <span>Better Delta Bar <b id="version">?</b> preview</span>
     <span><span class="key" data-key="arrowup">&uarr;</span> gain time <span class="key" data-key="arrowdown">&darr;</span> lose time
@@ -100,7 +128,10 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
     <button id="btn-demo" class="on">auto demo</button>
     <button id="btn-noref">no reference</button>
     <button id="btn-invalid">invalid flag</button>
+    <button id="btn-pit">pit lane</button>
+    <select id="reason" title="the reason the cut notice carries: every one the game has"></select>
     <button id="btn-cut">cut notice</button>
+    <button id="btn-reasons">all reasons</button>
     <button id="btn-driver">vs driver</button>
     <button id="btn-hide">hide HUD</button>
     <button id="btn-focus" class="on">focused car</button>
@@ -115,7 +146,7 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
 <script>
 /** Fake game side: the models the widget reads, driven by keys or a scripted lap. */
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
-                           current_lap_time_ms: 0, npos: 0, delta_time_drivername: "" };
+                           current_lap_time_ms: 0, npos: 0, delta_time_drivername: "", car_location: "Track" };
 window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", current: "0:00.000", invalid: false };
 window.ModelUIRealtimeLeaderboard = { lines: [{ focused: true, car_number: 666 }] };
 /** The game's engine, as far as the widget uses it: UI notifications (the "cut notice" button sends one). */
@@ -125,6 +156,8 @@ window.engine = (function () {
     return {
         on: function (name, cb) { handlers[name] = cb; return { clear: function () { delete handlers[name]; } }; },
         trigger: function () {},
+        /** the game's translation table, as far as the reason keys the widget sees */
+        translate: function (key) { return ({ InvestigationType_Racecar_Cut: "Track Limits" })[key] || key; },
         notify: function (message) { if (handlers.UINotification) { handlers.UINotification(message); } }
     };
 }());
@@ -253,10 +286,21 @@ const Preview = (function () {
         q("#btn-demo").addEventListener("click", function () { setDemo(!state.demo); });
         toggleButton("#btn-noref", function () { return state.noref; }, function (on) { state.noref = on; });
         toggleButton("#btn-invalid", function () { return window.ModelTiming.invalid; }, function (on) { window.ModelTiming.invalid = on; });
+        // the car's location, as the game reports it: the pit lane makes this lap a pit lap (PIT LANE, then OUTLAP once out)
+        toggleButton("#btn-pit", function () { return window.ModelCurrentCar.car_location === "Pitlane"; },
+            function (on) { window.ModelCurrentCar.car_location = on ? "Pitlane" : "Track"; });
         // the game's "lap invalidated" notice for our car, as the log recorded it: the tag stays until the lap ends
+        // every reason the game has, from the widget's own table, so the list never drifts from it
+        Object.keys(BetterDeltaBar.REASONS).forEach(function (key) {
+            const option = document.createElement("option");
+
+            option.value = key;
+            option.textContent = BetterDeltaBar.REASONS[key];
+            q("#reason").appendChild(option);
+        });
         q("#btn-cut").addEventListener("click", function () {
             window.engine.notify({ type: "UINotificationType_SessionPenalty",
-                tuples: [{ values: ["{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"] }] });
+                tuples: [{ values: ["{PENALTY_CLEARED_KEY} #666", q("#reason").value, "lblNotificationPenalty_LAP_INVALIDATED"] }] });
         });
         toggleButton("#btn-driver", function () { return window.ModelCurrentCar.delta_time_drivername !== ""; },
             function (on) { window.ModelCurrentCar.delta_time_drivername = on ? "M. Verstappen" : ""; });
@@ -278,6 +322,55 @@ const Preview = (function () {
         q("#btn-options").addEventListener("click", function () {
             ACEUIAppLoader.settings.toggle("betterdeltabar");
         });
+
+        // the reasons gallery: the live widget cloned once per reason and layout, with the tag text the
+        // widget itself would write, so what is on screen is the real markup under the real stylesheet
+        const buildGallery = function () {
+            const rows = q("#gallery .rows");
+            const source = document.getElementById("betterdeltabar");
+            const withDriver = q("#gallery-driver").checked;
+            const noRef = q("#gallery-noref").checked;
+
+            rows.innerHTML = "";
+            Object.keys(BetterDeltaBar.REASONS).forEach(function (key) {
+                const row = document.createElement("div");
+                const label = document.createElement("div");
+
+                row.className = "row";
+                label.className = "label";
+                label.textContent = BetterDeltaBar.REASONS[key] + "   (" + key + ")";
+                row.appendChild(label);
+                ["full", "compact"].forEach(function (layout) {
+                    const col = document.createElement("div");
+                    const clone = source.cloneNode(true);
+
+                    col.className = "col";
+                    clone.removeAttribute("id");
+                    clone.classList.add("bd-invalid", "bd-top-on");
+                    clone.classList.remove("bd-pit", "bd-hide-noref", "dragging");
+                    clone.classList.toggle("bd-compact", layout === "compact");
+                    clone.classList.toggle("bd-hasdriver", withDriver);
+                    clone.classList.toggle("bd-noref", noRef);
+                    clone.querySelector(".bd-vs").textContent = "vs M. Verstappen";
+                    clone.querySelector(".bd-status").textContent = "no reference yet \u00b7 lap 0:27.4";
+                    clone.querySelector(".bd-invalid-tag").textContent = "INVALID \u00b7 " + BetterDeltaBar.REASONS[key].toUpperCase();
+                    col.appendChild(clone);
+                    row.appendChild(col);
+                });
+                rows.appendChild(row);
+            });
+        };
+        const showGallery = function (on) {
+            q("#gallery").hidden = !on;
+            q("#btn-reasons").classList.toggle("on", on);
+
+            if (on) { buildGallery(); }
+        };
+
+        q("#btn-reasons").addEventListener("click", function () { showGallery(q("#gallery").hidden); });
+        q("#btn-gallery-close").addEventListener("click", function () { showGallery(false); });
+        q("#gallery-driver").addEventListener("change", buildGallery);
+        q("#gallery-noref").addEventListener("change", buildGallery);
 
         // URL flags (see the top of the file); options persist in localStorage like in game
         if (window.PreviewFlags.indexOf("reset") >= 0) { ACEUIAppLoader.settings.reset("betterdeltabar"); }
@@ -302,6 +395,7 @@ const Preview = (function () {
         window.PreviewFlags.forEach(function (flag) {
             const setting = /^set:([A-Za-z]+)=(.+)$/.exec(flag);
             const hold = /^hold=([\d.]+)$/.exec(flag);
+            const reason = /^reason=(\w+)$/.exec(flag);
 
             // strings stay strings (a choice like decimals stores "2"); the range control coerces numbers itself
             if (setting) {
@@ -311,11 +405,24 @@ const Preview = (function () {
             }
 
             if (hold) { state.lapStart = performance.now() - Number(hold[1]) * 1000; }
+
+            if (reason) { q("#reason").value = reason[1].indexOf("InvestigationType_") === 0 ? reason[1] : "InvestigationType_" + reason[1]; }
         });
 
         if (window.PreviewFlags.indexOf("driver") >= 0) { window.ModelCurrentCar.delta_time_drivername = "M. Verstappen"; q("#btn-driver").classList.add("on"); }
 
         if (window.PreviewFlags.indexOf("flag") >= 0) { window.ModelTiming.invalid = true; q("#btn-invalid").classList.add("on"); }
+
+        if (window.PreviewFlags.indexOf("pit") >= 0) { window.ModelCurrentCar.car_location = "Pitlane"; window.ModelTiming.invalid = true; q("#btn-pit").classList.add("on"); q("#btn-invalid").classList.add("on"); }
+
+        // an outlap: the widget must see the car in the pit lane first, then out on the track with the flag up
+        if (window.PreviewFlags.indexOf("outlap") >= 0) {
+            window.ModelCurrentCar.car_location = "Pitlane"; window.ModelTiming.invalid = true; q("#btn-invalid").classList.add("on");
+            setTimeout(function () { window.ModelCurrentCar.car_location = "Track"; }, 200);
+        }
+
+        // the gallery clones the widget, so it waits for the widget to be attached and drawn once
+        if (window.PreviewFlags.indexOf("reasons") >= 0) { setTimeout(function () { showGallery(true); }, 150); }
 
         // the cut notice needs the widget attached and one frame in, so it knows the lap it is on
         if (window.PreviewFlags.indexOf("cut") >= 0) {

@@ -89,8 +89,9 @@ app drawer with its own switch and an **OPTIONS** button.
 | **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best, red when it does not. |
 | **LAST LAP** | Your last lap, off by default. |
 | **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
-| **INVALID** | A small outlined tag when the game invalidates the lap you are on (its own "lap invalidated" notice, track limits say), with or without a reference lap, until you cross the line. Not on the lap out of the pits, which the game flags from its first metre without any notice. |
-| **vs Name** | Appears when the delta is against another driver rather than your own lap. |
+| **INVALID · TRACK LIMITS** | A small red outlined tag when the game invalidates the lap you are on, with the game's own reason when it gave one (a track-limits cut names itself; every reason the game has is known). Shown with or without a reference lap, until you cross the line. |
+| **PIT LANE**, **OUTLAP** | The same tag, quiet and grey, on a lap that does not count with nothing wrong: PIT LANE while you are in the pit lane, OUTLAP for the rest of a lap that began there. On some tracks the timing line lies inside the pit lane, so the lap the game flags at the pit exit is the one after the line; it reads OUTLAP too. Speeding out of the pits gets you the game's warning and nothing else: it does not invalidate a lap. |
+| **vs Name** | Appears whenever the game names a driver for its delta, as its own bar does above itself. In practice against your own lap it never does; expect it where the game compares you to a rival. |
 
 With no reference lap yet the number is a dim placeholder and a line above the bar counts the
 lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. That line
@@ -128,8 +129,9 @@ bold.
   more before it changes colour.
 
 **Show**
-- For both layouts: *Trend chevrons*, *invalid lap tag*, *driver name*: each **on**. *Hide
-  until a reference lap*: **off**; on, the whole widget stays hidden until there is a delta.
+- For both layouts: *Trend chevrons*, *Lap tags* (INVALID, OUTLAP, PIT LANE): each **on**.
+  *Hide until a reference lap*: **off**; on, the whole widget stays hidden until there is a
+  delta.
 - Full layout only: *session optimal*, *session best*, *predicted lap*: **on**; *last lap*
   and *lap trace*: **off**.
 - Compact layout only: *Figure follows the fill*: **on**. Off keeps the tag centred.
