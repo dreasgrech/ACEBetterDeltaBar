@@ -344,10 +344,11 @@ const BetterDeltaBar = (function () {
      * only exist in one: the lap-time cells and the trace are the full layout's, the
      * figure following the fill is the compact one's. Those carry one of these, so the
      * settings window shows only what the layout on screen has, and swaps when it changes.
-     * Called by the loader at render time, after `options` exists.
+     * Read from the store rather than from `options`: the loader may draw the window (a
+     * reopen after the HUD reload) before `define` below has returned that object.
      */
-    const inFull = function () { return options[SETTING.layout] !== LAYOUT_COMPACT; };
-    const inCompact = function () { return options[SETTING.layout] === LAYOUT_COMPACT; };
+    const inCompact = function () { return settings.get(me.name, SETTING.layout) === LAYOUT_COMPACT; };
+    const inFull = function () { return !inCompact(); };
 
     /** The settings window: wide, two controls to a row, hints in one line at the foot for the row under the pointer. */
     const PANE_WIDTH = "36rem";
