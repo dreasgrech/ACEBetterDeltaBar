@@ -23,7 +23,8 @@
  *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
  *                 .bd-invalid, .bd-hasdriver, .bd-top-on (the top line has something to say);
  *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
- *   options       .bd-compact; .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
+ *   options       .bd-compact; .bd-faster-left (the bar grows left for time gained, and the
+ *                 chevrons follow); .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
  *                 .bd-notrace .bd-noinvalid .bd-nodriver; .bd-narrow / .bd-wide;
  *                 .bd-num-overall / .bd-num-white (what colours the figure; the default is the
  *                 trend); .bd-bar-trend (the fill takes the trend's colour instead of the
@@ -327,7 +328,11 @@ body.hide-hud .ace-betterdeltabar {
     text-shadow: none;
 }
 
-/* chevrons: border triangles, faded out unless the trend points their way */
+/* chevrons: border triangles, faded out unless the trend points their way. They point the
+   way the END OF THE FILL is moving: towards the faster side while gaining, towards the
+   slower side while losing. The faster side is the right by default and the left under
+   .bd-faster-left (the option), so which chevron shows depends on both. The colour is the
+   trend's, whichever side it is on. */
 .ace-betterdeltabar .bd-arrow {
     width: 0;
     height: 0;
@@ -338,20 +343,53 @@ body.hide-hud .ace-betterdeltabar {
 }
 
 .ace-betterdeltabar .bd-arrow-l {
-    border-right: 0.5em solid #44ea78;
+    border-right: 0.5em solid #fff;
 }
 
 .ace-betterdeltabar .bd-arrow-r {
-    border-left: 0.5em solid #ff1418;
+    border-left: 0.5em solid #fff;
 }
 
-.ace-betterdeltabar.bd-gain .bd-arrow-l,
+.ace-betterdeltabar.bd-gain .bd-arrow-l {
+    border-right-color: #44ea78;
+}
+
+.ace-betterdeltabar.bd-gain .bd-arrow-r {
+    border-left-color: #44ea78;
+}
+
+.ace-betterdeltabar.bd-lose .bd-arrow-l {
+    border-right-color: #ff1418;
+}
+
 .ace-betterdeltabar.bd-lose .bd-arrow-r {
+    border-left-color: #ff1418;
+}
+
+/* faster side right: gaining points right, losing points left */
+.ace-betterdeltabar.bd-gain .bd-arrow-r,
+.ace-betterdeltabar.bd-lose .bd-arrow-l {
     opacity: 0.9;
 }
 
-.ace-betterdeltabar.bd-strong.bd-gain .bd-arrow-l,
-.ace-betterdeltabar.bd-strong.bd-lose .bd-arrow-r {
+.ace-betterdeltabar.bd-strong.bd-gain .bd-arrow-r,
+.ace-betterdeltabar.bd-strong.bd-lose .bd-arrow-l {
+    opacity: 1;
+}
+
+/* faster side left: the other way round (after the rules above, so these win) */
+.ace-betterdeltabar.bd-faster-left.bd-gain .bd-arrow-r,
+.ace-betterdeltabar.bd-faster-left.bd-lose .bd-arrow-l {
+    opacity: 0;
+}
+
+.ace-betterdeltabar.bd-faster-left.bd-gain .bd-arrow-l,
+.ace-betterdeltabar.bd-faster-left.bd-lose .bd-arrow-r {
+    opacity: 0.9;
+}
+
+.ace-betterdeltabar.bd-faster-left.bd-strong.bd-gain .bd-arrow-l,
+.ace-betterdeltabar.bd-faster-left.bd-strong.bd-lose .bd-arrow-r {
     opacity: 1;
 }
 
@@ -505,11 +543,12 @@ body.hide-hud .ace-betterdeltabar {
     height: 2.3em;
 }
 
+/* near-black: against a bright sky in game, 0.8 read as grey */
 .ace-betterdeltabar.bd-compact .bd-bar {
     bottom: auto;
     height: 0.8em;
     border-radius: 0.2em;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.94);
 }
 
 /* solid fills, in the sign's colour or the trend's */
@@ -536,7 +575,7 @@ body.hide-hud .ace-betterdeltabar {
 .ace-betterdeltabar.bd-compact .bd-delta {
     min-width: 0;
     padding: 0 0.35em;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgba(0, 0, 0, 0.94);
     border-radius: 0.15em;
     font-size: 1.2em;
     line-height: 1.05em;

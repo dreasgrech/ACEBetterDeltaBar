@@ -169,14 +169,32 @@ window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
         drift(1500, -40);
         ok(has(root, "bd-gain"), "gaining at 40 ms/s (band 15)"); ok(!has(root, "bd-strong"), "not strong under 75 ms/s");
         ok(!has(root, "bd-flat") && !has(root, "bd-lose"));
-        eq(getComputedStyle(q(".bd-arrow-l")).opacity, "0.9", "left chevron shows");
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0.9", "gaining: the chevron points right, where the fill is heading");
+        eq(getComputedStyle(q(".bd-arrow-l")).opacity, "0", "and not left");
+        eq(getComputedStyle(q(".bd-arrow-r")).borderLeftColor, "rgb(68, 234, 120)", "in green");
         drift(1500, -600);
         ok(has(root, "bd-gain") && has(root, "bd-strong"), "strong at 600 ms/s");
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "1", "brighter when strong");
         run(1500);
         ok(has(root, "bd-flat"), "steady reads flat"); ok(!has(root, "bd-strong"));
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0", "no chevron when flat");
         drift(1500, 40);
         ok(has(root, "bd-lose"), "losing"); ok(!has(root, "bd-gain"));
-        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0.9", "right chevron shows");
+        eq(getComputedStyle(q(".bd-arrow-l")).opacity, "0.9", "losing: the chevron points left, where the fill is heading");
+        eq(getComputedStyle(q(".bd-arrow-l")).borderRightColor, "rgb(255, 20, 24)", "in red");
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0");
+    });
+
+    t("with the faster side on the left the chevrons turn round with the bar", function () {
+        set("fasterSide", "left"); ok(has(root, "bd-faster-left"));
+        ok(has(root, "bd-lose"), "still losing");
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0.9", "losing points right now"); eq(getComputedStyle(q(".bd-arrow-l")).opacity, "0");
+        eq(getComputedStyle(q(".bd-arrow-r")).borderLeftColor, "rgb(255, 20, 24)", "red");
+        drift(1500, -600); ok(has(root, "bd-gain") && has(root, "bd-strong"));
+        eq(getComputedStyle(q(".bd-arrow-l")).opacity, "1", "gaining strongly points left"); eq(getComputedStyle(q(".bd-arrow-r")).opacity, "0");
+        eq(getComputedStyle(q(".bd-arrow-l")).borderRightColor, "rgb(68, 234, 120)", "green");
+        set("fasterSide", "right"); ok(!has(root, "bd-faster-left"));
+        eq(getComputedStyle(q(".bd-arrow-r")).opacity, "1", "and back");
     });
 
     t("hysteresis: a trend is left at half the band, not entered under it", function () {

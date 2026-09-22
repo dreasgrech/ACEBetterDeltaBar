@@ -8,7 +8,8 @@
  * through every corner is green all the way round. This widget keeps the bar for the
  * overall delta and colours the NUMBER by the trend: green while you are gaining on the
  * reference right now, red while you are losing, white while nothing is changing, with a
- * chevron on the side the time is going.
+ * chevron pointing the way the end of the fill is moving: towards the faster side while
+ * gaining, towards the slower side while losing.
  *
  * Two layouts. "Full" is a broadcast-style block: a wide bar with the figure sitting on
  * it and the fill growing out from the centre behind it, a bright tick at the fill's end,
@@ -215,6 +216,8 @@ const BetterDeltaBar = (function () {
         predSlower: "bd-pred-slower",
         /** On the root: the layout, what the options hide, and the looks they choose. */
         compact: "bd-compact",
+        /** On the root: the bar grows left for time gained (the option); the chevrons follow it. */
+        fasterLeft: "bd-faster-left",
         noArrows: "bd-noarrows",
         noOptimal: "bd-nooptimal",
         noBest: "bd-nobest",
@@ -560,6 +563,7 @@ const BetterDeltaBar = (function () {
         state.driverOn = options[SETTING.driver] !== false;
 
         setClass(root, CLASS.compact, compact);
+        setClass(root, CLASS.fasterLeft, !state.fasterRight);
         setClass(root, CLASS.noArrows, options[SETTING.arrows] === false);
         setClass(root, CLASS.noOptimal, options[SETTING.optimal] === false);
         setClass(root, CLASS.noBest, options[SETTING.best] === false);

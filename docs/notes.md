@@ -50,6 +50,8 @@ One trap found by the harness: a `section` spec and a value spec must not share 
 (the first version had a "layout" section and a "layout" choice, and the choice could not
 be set).
 
+The compact bar's black is 0.94 alpha: 0.8 read as mid grey against a bright sky in game.
+
 `npos` was not measured live before 0.1.0: the field is in the protobuf schema
 (`UICurrentCarState` field 113, `npos_perc` 112) and is range-checked at read time, so a
 value outside 0..1 leaves the trace empty rather than wrong. The first in-game session
@@ -97,10 +99,12 @@ exactly, for anyone who prefers it.
   state changed and writes `transform` on a handful of elements. Every write is guarded by
   a cache of the last value, so a steady delta costs nothing.
 - `var(--name, fallback)` is not supported by this Cohtml build; plain `var(--name)` only.
-- The chevrons are CSS border triangles. Borders render (the stock uses them everywhere);
-  a triangle from them is the one technique here the stock stylesheets do not use, and
-  the first in-game session is what proves it. If it does not draw, the fallback is a
-  small rotated square.
+- The chevrons are CSS border triangles, the one technique here the stock stylesheets do
+  not use. Proven in game on 2026-09-22 (compact layout, the tag following the fill, the
+  chevron drawn). They point the way the END OF THE FILL moves, which depends on the
+  "Faster side" option: the first version pointed green left whatever the side, which read
+  wrong against a bar growing right; now `.bd-faster-left` on the root turns them with the
+  bar, in the stylesheet alone.
 
 Full background in `ACEGameInternals/docs/gameface-notes.md`.
 

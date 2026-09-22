@@ -22,7 +22,7 @@ This one keeps the bar for the overall delta and colours the **number by the tre
 - **red** while you are losing to it,
 - **white** while nothing is changing,
 
-with a chevron on the side the time is going, brighter when it is going fast. One glance
+with a chevron pointing the way the end of the bar is moving, brighter when it is moving fast. One glance
 tells you both things: the bar says where the lap stands, the number says which way it is
 heading.
 
@@ -83,7 +83,7 @@ app drawer with its own switch and an **OPTIONS** button.
 |---|---|
 | **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round). A bright tick marks the end of the fill. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
 | **The number** | The same delta as a figure, `-0.235` for time gained, `+0.235` for time lost. Its **colour is the trend**: is the number going down (green, you are gaining) or up (red, you are losing) over the last second? White means it is holding. |
-| **The chevrons** | Point the way the time is going. They brighten when the trend is strong. |
+| **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
 | **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
 | **SESSION BEST** | Your best lap of the session, with a purple tab. |
 | **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best, red when it does not. |
