@@ -19,7 +19,7 @@ Everything is read from the globals the stock UI mirrors every frame (see
 | `ModelTiming.best` | the best lap as the game formats it, `""` when none | shown as is; parsed to ms to colour the prediction |
 | `ModelTiming.ideal` / `.last` | the session optimal (best sectors added up) and the last lap, formatted | the other two cells, shown as they come |
 | `ModelTiming.invalid` | the lap is invalid; **true from the first metre of the lap out of the pits** (measured: `lap time 468 ms, invalid true`), and a cut on that lap does not change it | one of two sources for the INVALID tag: the flag counts only when it rises during a lap that started valid (latched over the first 500 ms, `lapStartedInvalid`); a pit exit shows nothing |
-| `engine.on("UINotification")` | the game's UI notifications, the event the stock top-right box draws from; a lap invalidation is a `UINotificationType_SessionPenalty` whose `tuples[0].values` were `["{PENALTY_CLEARED_KEY} #666", <reason key>, <type key shown as LAP INVALIDATED>]` for a track-limits cut in practice (log, 2026-09-22 15:59) | the other source, and the one that works on a first lap: type key containing "invalid" and the car number matching the focused leaderboard line marks the lap cut until the next lap. The type key's exact spelling is not in the stock enum table (`ePenaltyType` has no lap-invalidated entry), hence the loose match; the widget logs every penalty notification it sees. The notice comes once and Escape/resume rebuilds the page, so the cut is kept through `me.remember` keyed by `low_frequency.total_lap_count` (or the lap time and the flag when there is none) and restored on the first frame if it is still that lap |
+| `engine.on("UINotification")` | the game's UI notifications, the event the stock top-right box draws from; a lap invalidation is a `UINotificationType_SessionPenalty` whose `tuples[0].values` are `["{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"]` for a track-limits cut in practice (measured 2026-09-22 16:07, several times per cut) | the other source, and the one that works on a first lap: that exact type key and the car number matching the focused leaderboard line marks the lap cut until the next lap. The key is a l10n id (not in the stock `ePenaltyType` table), so it is the same in every language; the widget logs every penalty notification it sees. The notice comes once and Escape/resume rebuilds the page, so the cut is kept through `me.remember` keyed by `low_frequency.total_lap_count` (or the lap time and the flag when there is none) and restored on the first frame if it is still that lap |
 
 Positive is time lost, as everywhere in the game. The stock widget clamps the delta to
 +/-1000 ms for its bar width and colours bar and figure by the sign; it colours nothing by
@@ -64,6 +64,67 @@ The compact bar's black is 0.94 alpha: 0.8 read as mid grey against a bright sky
 (`UICurrentCarState` field 113, `npos_perc` 112) and is range-checked at read time, so a
 value outside 0..1 leaves the trace empty rather than wrong. The first in-game session
 tells: the minute log line says `no npos` when neither field reads.
+
+**What the log proved about the flag (2026-09-22, practice, one car).** A pit exit reads
+`lap time 465 ms, invalid true` on its first frame and stays flagged all the way round; a cut
+on that lap changes nothing in the timing model, only the notification says. Crossing the
+line: `new lap: lap time 35 ms, invalid false` in the same frame the lap time resets, so the
+500 ms latch window is generous. A cut on a lap that started valid: the notification arrives
+(16:16:47.276) and the flag rises 19 ms later (`invalid true, lap started invalid false`), so
+both sources agree and either alone would do there. The invalid tag therefore appears in
+exactly two cases: the game's own lap-invalidated notice for our car, or the flag rising on a
+lap it was down for; it clears when the lap time resets (the line, or a return to the pits),
+and a HUD reload keeps it only for the very lap it was set on.
+
+## The two layouts are held to the same states
+
+`python tools/render_states.py` renders the widget in seventeen states in both layouts and
+puts them side by side in `dev/states.png` (not committed). The rule it checks: the two
+columns show the same figures, colours, chevron sides, fills, tags and gaps, and differ only
+in what the compact layout has no room for (cells, trace, tick). The first run of it
+(2026-09-22) found three faults the harness had not: the game's `-1` for "no predicted lap"
+passed the lap-time sanity check and coloured the PREDICTED cell green against the best (now
+a lap time must be positive); "vs Name" and the no-reference note ran together (a gap); and
+the top line was in the flow, so the bar jumped a line down whenever a tag came and back up
+when it went (now the line floats above the panel, out of the flow, with the panel's own
+dark behind it in full and the tags' own backgrounds in compact). All three are in the
+harness now, the third by measuring that the bar's top does not move.
+
+A second pass from other angles (the same day): a soak case in the harness now drives forty
+seconds of the scripted lap through each layout and each faster side and checks, on every
+frame, the invariants that tie the parts together (one trend class, sign classes against the
+delta, the figure's text, one fill only and on the right side with the right share, the
+tick's shift, the figure row following it only in compact, the top line on exactly when it
+has something, the chevron on the side the fill is heading, the prediction's colour). It
+found nothing wrong in the widget and one thing wrong in the checker (judging a frame before
+it was drawn). A long driver name is now clipped in its group and can never push the
+INVALID tag out of the line (tested). And the game's log for the session was read for engine
+warnings: 163 `Trying to set display property to invalid value!` lines came from the loader's
+settings pane using `display: inline-flex`, which this Cohtml does not have (now `flex`, and
+refused by the loader's kit); nothing else in the log traced to this widget.
+
+Later passes, each from a new angle: a sweep of all 3,456 combinations of the look options
+(classes, the numbers the loop reads and what is on screen all agree); lifecycle paths (models
+vanishing and returning, no timing model, focus lost); numeric edges (minus zero, NaN,
+infinity, the range boundary, a minute of delta); a stall longer than the sampler's gap; fifty
+attach/detach rounds (no listener, handler or frame leaks); a steady frame writing nothing to
+the DOM and a moving one touching only the fills, the tick and the figure. Three more faults
+came out of them and are fixed: the lap trace switched on mid-lap showed the slots of a lap
+driven while it was off (now blanked when it comes back); after a stall the trend's ring
+spanned the stall (now emptied when a frame gap exceeds the sampler's two seconds); and a
+root reused by a re-attach (the drawer switching the app off and on) kept the per-frame
+classes of its earlier life, so `bd-gain` could sit beside `bd-flat` until the trend next
+changed (attach now puts every per-frame class where the fresh state says). The write-count
+case is what caught the last one: the root's class list was wrong while nothing was writing.
+After those, five passes in a row found nothing: the state matrix re-rendered, the release
+zip's contents, Pedal Graph's suite against the tightened kit, a privacy sweep of the change
+set, and the preview's flags and buttons against its code.
+
+**Edges that are known and left.** A cut in the last metres of a lap whose notice arrives
+after the line would mark the NEW lap; the notices measured came within 20 ms of the flag,
+so this needs a cut across the timing line itself, and the flag path would still be right
+about the old lap. A cut on a lap flagged from its first metre (the pit exit) can only be
+seen through the notice; no notice, no tag.
 
 ## The trend
 

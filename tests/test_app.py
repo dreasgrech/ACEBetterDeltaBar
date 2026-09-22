@@ -23,7 +23,7 @@ def read(path):
 
 class Tests(AppTests):
     ROOT = ROOT
-    MIN_CASES = 29
+    MIN_CASES = 37
     HOT_PATH = ("// ---- rendering", "// ---- lifecycle")
 
 

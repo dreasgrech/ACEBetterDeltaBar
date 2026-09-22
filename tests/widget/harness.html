@@ -239,6 +239,53 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ok(state.count <= 3, "ring restarted: " + state.count); ok(has(root, "bd-flat"), "flat until a new window");
     });
 
+    t("a stall longer than the sampler's gap forgets the ring: the next rate does not span it", function () {
+        setDelta(-300); drift(1500, -40); ok(has(root, "bd-gain")); ok(state.count >= 30, "a window and a half of samples before the stall: " + state.count);
+        now += 5000;                                        // no frames for five seconds: the game was away
+        drift(100, -40);
+        ok(state.count <= 3, "ring restarted after the stall: " + state.count); ok(has(root, "bd-flat"), "flat until a new window is in");
+        drift(1500, -40); ok(has(root, "bd-gain"), "and gaining again once it is");
+    });
+
+    t("attach and detach fifty times leaves nothing behind: no settings listeners, no notification handler, no frame", function () {
+        // the widget holds two settings listeners while attached (its own and the loader's scale); detached, none
+        const attached = ACEUIAppLoader.settings.listenerCount(me.name);
+        const queued = clock.queue.length;
+        let i;
+        B.detach(state);
+        const detached = ACEUIAppLoader.settings.listenerCount(me.name), idle = clock.queue.length;
+        for (i = 0; i < 50; i += 1) { state = B.attach(root); frame(); B.detach(state); }
+        const after = ACEUIAppLoader.settings.listenerCount(me.name), handler = engineHandlers.UINotification, left = clock.queue.length;
+        // a root reused from an earlier life still wears that life's per-frame classes: attach must put them right
+        ["bd-gain", "bd-strong", "bd-slower"].forEach(function (c) { root.classList.add(c); }); root.classList.remove("bd-flat"); q(".bd-cell-pred").classList.add("bd-pred-slower");
+        state = B.attach(root);                             // back before judging, so a fault here does not poison what follows
+        const stale = ["bd-gain", "bd-strong", "bd-slower", "bd-lose"].filter(function (c) { return has(root, c); });
+        const flatAgain = has(root, "bd-flat"), predClean = !has(q(".bd-cell-pred"), "bd-pred-slower");
+        frame();
+        eq(stale.join(","), "", "no stale trend or sign class survives a re-attach"); ok(flatAgain, "flat again"); ok(predClean, "and the prediction's colour is reset");
+        eq(after, detached, "no settings listener leaked over fifty attach/detach rounds"); ok(detached < attached, "and detach does let go of them");
+        eq(handler, undefined, "no notification handler left"); eq(left, idle, "no frame left queued");
+        eq(ACEUIAppLoader.settings.listenerCount(me.name), attached, "attached again, the same count as before"); eq(clock.queue.length, queued);
+        ok(engineHandlers.UINotification, "subscribed again");
+    });
+
+    t("a steady frame writes nothing to the DOM; a moving one writes only the fills, the tick and the figure", function () {
+        const changes = [];
+        const watcher = new MutationObserver(function (records) { records.forEach(function (r) { changes.push(r); }); });
+        watcher.observe(root, { attributes: true, characterData: true, childList: true, subtree: true });
+        setDelta(-300); run(3000);                            // settle: caches filled, trend flat, the loader's panel placed (it settles over a few frames after an attach)
+        watcher.takeRecords(); changes.length = 0;            // and drop the records of the settling, which are still queued
+        run(1000);                                            // sixty steady frames
+        watcher.takeRecords().forEach(function (r) { changes.push(r); });
+        const describe = function (r) { return (r.target.nodeType === 3 ? "text of " + r.target.parentNode.className : r.attributeName + " on " + r.target.className) + (r.attributeName === "style" ? " -> " + r.target.getAttribute("style") : ""); };
+        eq(changes.length, 0, "steady: no writes at all in sixty frames: " + changes.map(describe).join(" | "));
+        setDelta(-400); frame(); watcher.takeRecords().forEach(function (r) { changes.push(r); });
+        const touched = changes.map(function (r) { return r.target.nodeType === 3 ? r.target.parentNode.className : r.target.className; }).sort();
+        ok(changes.length >= 3 && changes.length <= 4, "one frame's change: the fill, the tick track and the figure's text, at most a class: " + changes.length);
+        ok(touched.every(function (c) { return /bd-(right|left|ticktrack|delta|main)|ace-betterdeltabar/.test(c); }), "nothing else touched: " + touched.join(", "));
+        watcher.disconnect();
+    });
+
     t("no delta again: the ring is forgotten and the placeholder returns", function () {
         setDelta(null); frame();
         eq(state.count, 0); ok(has(root, "bd-noref")); eq(figure.textContent, "--.---"); eq(sx(right), 0);
@@ -275,7 +322,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         timing.best = ""; frame(); eq(cellTime("best"), "-:--.---"); ok(!has(q(".bd-cell-pred"), "bd-pred-slower"), "no best, no colour");
         timing.ideal = "Outlap"; frame(); eq(cellTime("optimal"), "-:--.---", "a string that is not a time is the placeholder");
         car.predicted_lap_time_ms = -1; frame(); eq(cellTime("pred"), "-:--.---");
-        timing.ideal = ""; timing.last = "";
+        timing.best = "1:43.445"; frame();
+        ok(!has(q(".bd-cell-pred"), "bd-pred-faster") && !has(q(".bd-cell-pred"), "bd-pred-slower"), "the game's -1 for no prediction is no lap time: no colour against the best");
+        car.predicted_lap_time_ms = 0; frame(); ok(!has(q(".bd-cell-pred"), "bd-pred-faster"), "nor is 0"); eq(cellTime("pred"), "-:--.---");
+        eq(B.readModel().predicted, null, "read as none");
+        timing.best = ""; frame(); timing.ideal = ""; timing.last = "";
     });
 
     t("the invalid tag: a lap that was valid and went invalid is a cut and shows it; one flagged from its start is a pit exit and does not", function () {
@@ -283,6 +334,15 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "the game's outlap text: no tag"); ok(!has(root, "bd-top-on"));
         timing.current = "0:12.345"; frame(); ok(has(root, "bd-invalid"), "a timed lap that went invalid: the tag"); ok(has(root, "bd-top-on"));
         eq(getComputedStyle(q(".bd-invalid-tag")).display, "block");
+        ok(q(".bd-top-right .bd-invalid-tag"), "the tag lives in the right-hand group"); ok(q(".bd-top-left .bd-status") && q(".bd-top-left .bd-vs"), "the note and the name in the left");
+        const topRect = q(".bd-top").getBoundingClientRect(), tagRect = q(".bd-invalid-tag").getBoundingClientRect();
+        ok(tagRect.right > topRect.left + topRect.width / 2, "and it is drawn on the right half of the line, with nothing on the left");
+        // the line floats above the panel: the bar does not move when it comes or goes
+        const barTop = q(".bd-stack").getBoundingClientRect().top;
+        ok(topRect.bottom <= root.getBoundingClientRect().top + 1, "the line sits above the panel, out of the flow");
+        timing.invalid = false; frame(); ok(!has(root, "bd-top-on"), "line gone");
+        eq(q(".bd-stack").getBoundingClientRect().top, barTop, "and the bar did not move");
+        timing.invalid = true; frame(); eq(q(".bd-stack").getBoundingClientRect().top, barTop, "nor when it comes back");
         const kept = car.delta_time_ms;
         setDelta(null); frame(); ok(has(root, "bd-invalid"), "with no reference lap too: a cut on your first lap is still a cut");
         setDelta(kept); frame();
@@ -301,17 +361,19 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         // a pit exit: flagged from the start, no tag
         car.current_lap_time_ms = 100; timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "flagged from the start: no tag");
         notify({ type: "UINotificationType_Car", tuples: [{ values: ["whatever"] }] }); frame(); ok(!has(root, "bd-invalid"), "another kind of notification: nothing");
-        notify(penalty("{PENALTY_CLEARED_KEY} #12", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #12", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         ok(!has(root, "bd-invalid"), "another car's invalidation: nothing");
         notify(penalty("{PENALTY_ADDED_KEY} #666", "PenaltyReason_Collision", "PenaltyType_Drive_Through")); frame();
         ok(!has(root, "bd-invalid"), "a penalty that is not an invalidation: nothing");
-        notify(penalty("{PENALTY_CLEARED_KEY} #666", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame();
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "x", "lblNotificationPenalty_LAP_INVALID")); frame();
+        ok(!has(root, "bd-invalid"), "the type key is matched exactly, not by a substring");
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         ok(has(root, "bd-invalid"), "our lap invalidated, as the game announced it in practice: the tag"); eq(state.lapCut, true);
         run(2000); ok(has(root, "bd-invalid"), "and it stays for the lap");
         car.current_lap_time_ms = 50; frame(); ok(!has(root, "bd-invalid"), "gone with the new lap"); eq(state.lapCut, false);
         // with no leaderboard to say which car is ours, any car's invalidation counts (single player)
         window.ModelUIRealtimeLeaderboard = null;
-        notify(penalty("{PENALTY_CLEARED_KEY} #12", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"), "unknown own number: taken as ours");
+        notify(penalty("{PENALTY_CLEARED_KEY} #12", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame(); ok(has(root, "bd-invalid"), "unknown own number: taken as ours");
         window.ModelUIRealtimeLeaderboard = { lines: [{ focused: true, car_number: 666 }] };
         const p = B.readPenalty(penalty("{PENALTY_CLEARED_KEY} #666", "r", "t")); eq(p.car, 666); eq(p.reason, "r"); eq(p.type, "t");
         eq(B.readPenalty(penalty("no number here", "r", "t")).car, null); eq(B.readPenalty({ type: "x" }), null); eq(B.readPenalty(null), null);
@@ -323,7 +385,154 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("a delta against another driver names them", function () {
         car.delta_time_drivername = "Max"; frame();
         ok(has(root, "bd-hasdriver")); eq(q(".bd-vs").textContent, "vs Max"); ok(has(root, "bd-top-on"));
+        // beside the no-reference note, with a gap between them
+        const kept = car.delta_time_ms; setDelta(null); frame();
+        ok(q(".bd-vs").getBoundingClientRect().right + 8 < q(".bd-status").getBoundingClientRect().left, "the name and the note do not run together");
+        setDelta(kept); frame();
         car.delta_time_drivername = ""; frame(); ok(!has(root, "bd-hasdriver")); ok(!has(root, "bd-top-on"));
+    });
+
+    t("a very long driver name is clipped on the left and never pushes the invalid tag out of the line", function () {
+        car.delta_time_drivername = "Maximilian Alexander von Hohenzollern-Sigmaringen the Third of Monaco"; timing.invalid = true; timing.current = "0:12.345";
+        car.current_lap_time_ms = 400; frame(); timing.invalid = false; frame(); car.current_lap_time_ms = 9000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid") && has(root, "bd-hasdriver"), "both on the line");
+        const line = q(".bd-top").getBoundingClientRect(), tag = q(".bd-invalid-tag").getBoundingClientRect(), name = q(".bd-vs").getBoundingClientRect();
+        ok(tag.right <= line.right + 0.5, "the tag ends inside the line"); ok(tag.left >= line.left, "and starts inside it");
+        ok(q(".bd-top-left").getBoundingClientRect().right <= tag.left, "the name's group ends before the tag");
+        ok(name.width > 0, "the name is drawn (clipped by its group)");
+        car.delta_time_drivername = ""; timing.invalid = false; frame(); ok(!has(root, "bd-top-on"));
+    });
+
+    t("soak: forty seconds of the scripted lap in each layout, every frame checked for the invariants that tie the parts together", function () {
+        const wasAttract = state.attract;
+        const fmt = function (ms) { return B.formatDelta(ms, state.decimals); };
+        let checked = 0, faults = [];
+        const fault = function (what) { if (faults.length < 8) { faults.push(what + " at " + now); } };
+        const check = function (compact) {
+            const v = B.attractValues(now), delta = v.delta;
+            const trend = ["bd-gain", "bd-lose", "bd-flat"].filter(function (c) { return has(root, c); });
+            const share = Math.min(1, Math.abs(delta) / state.rangeMs);
+            const onRight = delta !== 0 && (delta < 0) === state.fasterRight;
+            if (trend.length !== 1) { fault("trend classes " + trend.join("+")); }
+            if (has(root, "bd-strong") && has(root, "bd-flat")) { fault("strong while flat"); }
+            if (has(root, "bd-faster") !== (delta < 0) || has(root, "bd-slower") !== (delta > 0)) { fault("sign classes vs delta " + delta); }
+            if (has(root, "bd-noref")) { fault("noref with a delta"); }
+            if (figure.textContent !== fmt(delta)) { fault("figure " + figure.textContent + " vs " + fmt(delta)); }
+            if (sx(left) > 0 && sx(right) > 0) { fault("both fills"); }
+            if (Math.abs(sx(onRight ? right : left) - (delta === 0 ? 0 : share)) > 1e-3) { fault("fill share"); }
+            if (Math.abs(sx(onRight ? left : right)) > 1e-9 && delta !== 0) { fault("fill on the wrong side"); }
+            if (Math.abs(tx(tick) - (delta === 0 ? 0 : (onRight ? share : -share) * 50)) > 0.02) { fault("tick shift"); }
+            if (Math.abs(tx(main) - (compact && state.followOn ? tx(tick) : 0)) > 1e-9) { fault("figure row shift"); }
+            if (has(root, "bd-top-on") !== (has(root, "bd-hasdriver") || has(root, "bd-invalid") || has(root, "bd-noref"))) { fault("top line vs its contents"); }
+            // the chevron that shows is the one on the side the fill's end is moving to
+            const l = getComputedStyle(q(".bd-arrow-l")).opacity !== "0", r = getComputedStyle(q(".bd-arrow-r")).opacity !== "0";
+            if (has(root, "bd-flat") && (l || r)) { fault("chevron while flat"); }
+            if (has(root, "bd-gain") && (l !== !state.fasterRight || r !== state.fasterRight)) { fault("gain chevron side"); }
+            if (has(root, "bd-lose") && (l !== state.fasterRight || r !== !state.fasterRight)) { fault("lose chevron side"); }
+            const pred = q(".bd-cell-pred");
+            if (v.predicted < 103445 !== has(pred, "bd-pred-faster") || v.predicted > 103445 !== has(pred, "bd-pred-slower")) { fault("predicted colour"); }
+            checked += 1;
+        };
+        B.setAttract(state, true);
+        [false, true].forEach(function (compact) {
+            set("layout", compact ? "compact" : "full"); frame();
+            [true, false].forEach(function (right) {
+                set("fasterSide", right ? "right" : "left");
+                // judged AFTER each frame is drawn, against the truth for that same frame
+                const end = now + 20000;
+                while (now < end) { frame(); check(compact); }
+            });
+        });
+        // put things back before judging, so a fault here does not poison the tests after it; the
+        // scripted laps leave the widget mid-lap, so start the car's lap afresh and clean
+        set("fasterSide", "right"); set("layout", "full"); B.setAttract(state, wasAttract);
+        timing.invalid = false; car.current_lap_time_ms = 10; frame(); car.current_lap_time_ms = 200; frame();
+        ok(checked > 2000, "frames checked: " + checked);
+        eq(faults.join("; "), "", "no invariant broken");
+    });
+
+    t("every combination of the look options: the classes, the numbers the loop reads and what is on screen all agree with the options", function () {
+        const S = ACEUIAppLoader.settings;
+        const combos = [];
+        const disp = function (sel) { return getComputedStyle(q(sel)).display; };
+        let faults = [];
+        const fault = function (what, combo) { if (faults.length < 6) { faults.push(what + " for " + JSON.stringify(combo)); } };
+        setDelta(-235); car.npos = 0.3; frame();
+        ["full", "compact"].forEach(function (layout) { ["right", "left"].forEach(function (side) { ["trend", "overall", "white"].forEach(function (num) {
+            ["overall", "trend"].forEach(function (bar) { ["dark", "light", "none"].forEach(function (bg) { ["narrow", "normal", "wide"].forEach(function (width) {
+                ["3", "2"].forEach(function (dec) { [true, false].forEach(function (arrows) { [true, false].forEach(function (follow) { [true, false].forEach(function (trace) {
+                    combos.push({ layout: layout, fasterSide: side, numberColour: num, barColour: bar, background: bg, width: width, decimals: dec, showArrows: arrows, followFill: follow, showTrace: trace });
+                }); }); }); });
+            }); }); });
+        }); }); });
+        const widths = { full: {}, compact: {} };
+        combos.forEach(function (c) {
+            Object.keys(c).forEach(function (k) { S.set(me.name, k, c[k]); });
+            frame();
+            const compact = c.layout === "compact";
+            if (has(root, "bd-compact") !== compact) { fault("compact class", c); }
+            if (has(root, "bd-faster-left") !== (c.fasterSide === "left")) { fault("faster-left class", c); }
+            if (has(root, "bd-num-overall") !== (c.numberColour === "overall") || has(root, "bd-num-white") !== (c.numberColour === "white")) { fault("number colour class", c); }
+            if (has(root, "bd-bar-trend") !== (c.barColour === "trend")) { fault("bar colour class", c); }
+            if (has(root, "bd-bg-light") !== (c.background === "light") || has(root, "bd-bg-none") !== (c.background === "none")) { fault("background class", c); }
+            if (has(root, "bd-narrow") !== (c.width === "narrow") || has(root, "bd-wide") !== (c.width === "wide")) { fault("width class", c); }
+            if (has(root, "bd-noarrows") !== !c.showArrows) { fault("arrows class", c); }
+            if (state.followOn !== (compact && c.followFill)) { fault("followOn", c); }
+            if (has(root, "bd-notrace") !== !c.showTrace || state.traceOn !== c.showTrace) { fault("trace class/flag", c); }
+            if (state.decimals !== Number(c.decimals) || figure.textContent !== B.formatDelta(-235, Number(c.decimals))) { fault("decimals " + figure.textContent, c); }
+            if (state.fasterRight !== (c.fasterSide === "right")) { fault("fasterRight", c); }
+            if ((disp(".bd-cells") === "none") !== compact) { fault("cells shown", c); }
+            if ((disp(".bd-trace") === "none") !== (compact || !c.showTrace)) { fault("trace shown", c); }
+            if ((disp(".bd-tick") === "none") !== compact) { fault("tick shown", c); }
+            if ((disp(".bd-arrow-l") === "none") !== !c.showArrows) { fault("arrows shown", c); }
+            // gained time: the fill on the faster side, the tick and (compact, following) the figure row with it
+            const onRight = c.fasterSide === "right";
+            if (Math.abs(sx(onRight ? right : left) - 0.235) > 1e-6 || sx(onRight ? left : right) !== 0) { fault("fill side", c); }
+            if (Math.abs(tx(tick) - (onRight ? 11.75 : -11.75)) > 1e-6) { fault("tick side", c); }
+            if (Math.abs(tx(main) - (compact && c.followFill ? tx(tick) : 0)) > 1e-9) { fault("figure row", c); }
+            // the figure's colour follows the rule chosen: gained time, steady trend -> trend: white, overall: green, white: white
+            const colour = getComputedStyle(figure).color;
+            const expect = c.numberColour === "overall" ? "rgb(68, 234, 120)" : "rgba(255, 255, 255, 0.92)";
+            if (colour !== expect) { fault("figure colour " + colour, c); }
+            widths[c.layout][c.width] = q(".bd-bar").getBoundingClientRect().width;
+        });
+        ["full", "compact"].forEach(function (l) { ok(widths[l].narrow < widths[l].normal && widths[l].normal < widths[l].wide, l + " widths ordered: " + JSON.stringify(widths[l])); });
+        S.reset(me.name); frame();
+        eq(combos.length, 3456, "combinations tried"); eq(faults.join("; "), "", "no disagreement");
+    });
+
+    t("lifecycle paths: models vanishing and returning, no timing model at all, a lost focus, and the trace switched on mid-lap", function () {
+        const savedCar = window.ModelCurrentCar, savedTiming = window.ModelTiming;
+        setDelta(-235); frame(); eq(figure.textContent, "-0.235");
+        state.lastLog = now - 70000;                      // the minute is up, so the next quiet frame speaks
+        window.ModelCurrentCar = undefined; frame(); frame();
+        const text = figure.textContent, count = state.count, said = window.__log.some(function (l) { return l.indexOf("ModelCurrentCar not available") >= 0; });
+        window.ModelCurrentCar = savedCar; frame();       // put back before judging, so a fault here does not poison what follows
+        eq(text, "-0.235", "no model: nothing rewritten, nothing thrown"); eq(count, 0, "the ring is forgotten"); ok(said, "and said once a minute");
+        eq(figure.textContent, "-0.235", "back");
+        window.ModelTiming = undefined; timing.ideal = "1:43.102"; frame();
+        const optimal = cellTime("optimal"), tagged = has(root, "bd-invalid");
+        window.ModelTiming = savedTiming; frame();
+        eq(optimal, "-:--.---", "no timing model: placeholders"); ok(!tagged, "and no tag");
+        eq(cellTime("optimal"), "1:43.102"); timing.ideal = "";
+        drift(1500, -40); ok(state.count > 20); car.has_focused_car = false; frame(); eq(state.count, 0, "focus lost: the ring is forgotten"); car.has_focused_car = true; frame();
+        // the trace switched on mid-lap must not show what an earlier lap left in its slots
+        set("showTrace", true); car.npos = 0.5; setDelta(-500); frame(); ok(sy(ups[60]) > 0, "slot written");
+        set("showTrace", false); car.npos = 0.6; frame(); car.current_lap_time_ms = 10; frame(); car.current_lap_time_ms = 20000; car.npos = 0.2; frame();
+        set("showTrace", true); frame();
+        eq(sy(ups[60]), 0, "a slot from a lap driven while the trace was off is blank when it comes back"); ok(sy(ups[24]) > 0, "the slot under the car is drawn");
+        set("showTrace", false); frame();
+    });
+
+    t("numeric edges: minus zero, NaN, infinity, the range boundary, a minute of delta, rounding to two decimals", function () {
+        eq(B.formatDelta(-0, 3), "0.000"); eq(B.formatDelta(1000, 3), "+1.000"); eq(B.formatDelta(-60000, 3), "-1:00.000"); eq(B.formatDelta(-60000, 2), "-1:00.00");
+        eq(B.formatDelta(234, 2), "+0.23"); eq(B.formatDelta(235, 2), "+0.24"); eq(B.formatDelta(5, 2), "+0.01"); eq(B.formatDelta(-5, 2), "-0.01");
+        car.delta_time_ms = NaN; car.delta_time_ms_ui = NaN; frame(); ok(has(root, "bd-noref"), "NaN reads as no delta");
+        car.delta_time_ms = Infinity; car.delta_time_ms_ui = 5; frame(); eq(figure.textContent, "+0.005", "an infinite raw delta falls back to the UI copy");
+        setDelta(1000); frame(); eq(sx(left), 1, "exactly the range fills exactly"); setDelta(1001); frame(); eq(sx(left), 1, "and past it clamps");
+        setDelta(-0); frame(); eq(figure.textContent, "0.000"); ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "minus zero has no sign"); eq(tx(tick), 0);
+        car.predicted_lap_time_ms = NaN; frame(); eq(cellTime("pred"), "-:--.---"); car.predicted_lap_time_ms = Infinity; frame(); eq(cellTime("pred"), "-:--.---");
+        car.predicted_lap_time_ms = -1; setDelta(-235); frame();
     });
 
     t("the compact layout: cells and trace hidden, the tag follows the fill, and stops following when told", function () {
@@ -345,17 +554,17 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         };
         const cells = chip("Session optimal"), trace = chip("Lap trace"), follow = chip("Figure follows the fill"), arrows = chip("Trend chevrons");
         ok(cells && trace && follow && arrows, "chips drawn");
-        eq(cells.style.display, "inline-flex", "full layout: the cell switches are there"); eq(trace.style.display, "inline-flex");
-        eq(follow.style.display, "none", "and the compact-only switch is not"); eq(arrows.style.display, "inline-flex", "a switch for both layouts is always there");
+        eq(cells.style.display, "flex", "full layout: the cell switches are there"); eq(trace.style.display, "flex");
+        eq(follow.style.display, "none", "and the compact-only switch is not"); eq(arrows.style.display, "flex", "a switch for both layouts is always there");
         set("layout", "compact");
-        eq(cells.style.display, "none", "compact: the cell switches go"); eq(trace.style.display, "none"); eq(follow.style.display, "inline-flex", "and the follow switch comes");
+        eq(cells.style.display, "none", "compact: the cell switches go"); eq(trace.style.display, "none"); eq(follow.style.display, "flex", "and the follow switch comes");
         ok(pane.textContent.indexOf("Background") >= 0, "background stays: it applies to both");
         eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.94)", "compact bar, dark background");
         set("background", "none"); eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.12)", "background none dims the compact bar's track");
         eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0)", "and clears the tag");
         set("background", "light"); eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0.55)", "light: a lighter tag");
         ACEUIAppLoader.settings.reset(me.name); frame();
-        eq(cells.style.display, "inline-flex", "back to full: the cells return"); eq(follow.style.display, "none");
+        eq(cells.style.display, "flex", "back to full: the cells return"); eq(follow.style.display, "none");
         ACEUIAppLoader.settings.teardown(me.name);
         pane.remove();
     });
@@ -391,7 +600,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 
     t("a cut survives the HUD reload on Escape/resume: remembered by lap, restored on the same lap, forgotten on the next", function () {
         car.low_frequency = { total_lap_count: 3 }; car.current_lap_time_ms = 20000; frame(); eq(state.lapCount, 3, "the lap count is read");
-        notify(penalty("{PENALTY_CLEARED_KEY} #666", "PenaltyReason_TrackLimits", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"), "cut");
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame(); ok(has(root, "bd-invalid"), "cut");
         eq(me.recall("cut", null).lap, 3, "remembered with its lap");
         // Escape and resume: the page is rebuilt, the widget attached afresh, the flag still up from the pits
         B.detach(state); root.classList.remove("bd-invalid"); timing.invalid = true;
@@ -403,9 +612,13 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         // a reload onto a different lap than the one remembered: forgotten too
         me.remember("cut", { lap: 2, at: 1000 }); B.detach(state); state = B.attach(root); frame();
         ok(!has(root, "bd-invalid"), "a remembered cut from another lap is dropped"); eq(me.recall("cut", null), null);
+        // the same lap count but an earlier lap time: a new session whose first lap has the same number as the old one's
+        me.remember("cut", { lap: 4, at: 20000 }); car.current_lap_time_ms = 3000; B.detach(state); state = B.attach(root); frame();
+        ok(!has(root, "bd-invalid"), "a lap clock that went backwards is not the same lap"); eq(me.recall("cut", null), null);
+        car.current_lap_time_ms = 3100; frame();
         // without a lap count, the lap time and the flag decide: still running and still flagged is the same lap
-        car.low_frequency = undefined; notify(penalty("{PENALTY_CLEARED_KEY} #666", "r", "PenaltyType_LapInvalidated")); frame(); ok(has(root, "bd-invalid"));
-        B.detach(state); car.current_lap_time_ms = 500; state = B.attach(root); frame(); ok(has(root, "bd-invalid"), "later in the lap, flag up: kept");
+        car.low_frequency = undefined; notify(penalty("{PENALTY_CLEARED_KEY} #666", "r", "lblNotificationPenalty_LAP_INVALIDATED")); frame(); ok(has(root, "bd-invalid"));
+        B.detach(state); car.current_lap_time_ms = 5000; state = B.attach(root); frame(); ok(has(root, "bd-invalid"), "later in the lap, flag up: kept");
         B.detach(state); car.current_lap_time_ms = 50; state = B.attach(root); frame(); ok(!has(root, "bd-invalid"), "lap time wrapped: a new lap, dropped");
         timing.invalid = false; car.current_lap_time_ms = 200; frame();
     });

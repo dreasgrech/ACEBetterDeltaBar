@@ -110,22 +110,59 @@ body.hide-hud .ace-betterdeltabar {
 
 /* ---- top line: who the delta is against, no reference, invalid ---------------------- */
 
-/* only there while it has something to say (.bd-top-on), so the bar sits at the top otherwise */
+/* only there while it has something to say (.bd-top-on), and OUT of the flow: it floats just
+   above the panel, so the bar and everything under it never move when a tag comes or goes.
+   The font-size is the root's, so the em lengths here are the panel's own. */
 .ace-betterdeltabar .bd-top {
     display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
     height: 1.4em;
     padding: 0 0.85em;
+    background: rgba(6, 7, 8, 0.86);
     font-size: 0.7em;
     font-weight: 600;
     letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.62);
 }
 
+.ace-betterdeltabar.bd-bg-light .bd-top {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.ace-betterdeltabar.bd-bg-none .bd-top {
+    background: transparent;
+}
+
 .ace-betterdeltabar.bd-top-on .bd-top {
     display: flex;
+}
+
+/* the two ends of the line: always present, so space-between puts the tag at the right
+   whether or not the left has anything to say (margin-left: auto did not, in game) */
+.ace-betterdeltabar .bd-top-left,
+.ace-betterdeltabar .bd-top-right {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-width: 1px;
+}
+
+/* the left takes what is left and clips a long driver name; the tag on the right is never squeezed */
+.ace-betterdeltabar .bd-top-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    margin-right: 0.6em;
+}
+
+.ace-betterdeltabar .bd-top-right {
+    flex: 0 0 auto;
 }
 
 .ace-betterdeltabar .bd-vs,
@@ -137,6 +174,7 @@ body.hide-hud .ace-betterdeltabar {
 
 .ace-betterdeltabar.bd-hasdriver .bd-vs {
     display: block;
+    margin-right: 1.2em;
     color: #fff;
 }
 
@@ -152,7 +190,6 @@ body.hide-hud .ace-betterdeltabar {
 /* a quiet outlined tag, not a solid red block: an invalid lap is information, not an alarm */
 .ace-betterdeltabar.bd-invalid .bd-invalid-tag {
     display: block;
-    margin-left: auto;
     padding: 0 0.5em;
     border: 1px solid rgba(255, 20, 24, 0.7);
     border-radius: 0.15em;
@@ -546,8 +583,15 @@ body.hide-hud .ace-betterdeltabar {
     display: none;
 }
 
+/* compact has no panel: the line floats over the scene, its tags carrying their own backgrounds */
 .ace-betterdeltabar.bd-compact .bd-top {
     padding: 0 0.3em;
+    background: transparent;
+}
+
+.ace-betterdeltabar.bd-compact .bd-vs,
+.ace-betterdeltabar.bd-compact .bd-status {
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
 }
 
 .ace-betterdeltabar.bd-compact .bd-stack {

@@ -81,7 +81,7 @@ app drawer with its own switch and an **OPTIONS** button.
 
 | | |
 |---|---|
-| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round). A bright tick marks the end of the fill. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
+| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round; *Bar* in the Colour section can make it follow the trend instead). A bright tick marks the end of the fill. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
 | **The number** | The same delta as a figure, `-0.235` for time gained, `+0.235` for time lost. Its **colour is the trend**: is the number going down (green, you are gaining) or up (red, you are losing) over the last second? White means it is holding. |
 | **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
 | **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
@@ -92,8 +92,9 @@ app drawer with its own switch and an **OPTIONS** button.
 | **INVALID** | A small outlined tag when the game invalidates the lap you are on (its own "lap invalidated" notice, track limits say), with or without a reference lap, until you cross the line. Not on the lap out of the pits, which the game flags from its first metre without any notice. |
 | **vs Name** | Appears when the delta is against another driver rather than your own lap. |
 
-With no reference lap yet the number is a dim placeholder and the top line counts the lap
-you are on ("no reference yet · lap 0:34.2"), so you can see it is working. If you would
+With no reference lap yet the number is a dim placeholder and a line above the bar counts the
+lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. That line
+floats above the widget, so the bar never moves when it appears. If you would
 rather see nothing until there is a delta, switch on *Hide until a reference lap*. The
 reference is whatever the game itself is using for its delta, so it changes exactly when
 the stock one does.
@@ -119,9 +120,9 @@ bold.
 - *Decimals*: 2 or **3**.
 
 **Colour**
-- *Number colour*: **trend** (green while gaining, red while losing, white while steady),
+- *Number*: **trend** (green while gaining, red while losing, white while steady),
   overall (the stock rule: green while the lap is up, red while it is down) or white.
-- *Bar colour*: **overall** (its side's colour) or trend.
+- *Bar*: **overall** (its side's colour) or trend.
 - *Trend window*: how far back the trend looks: 0.5 s, **1 s** or 2 s.
 - *Trend sensitivity*: fine, **normal** or coarse. Fine reacts to less; coarse waits for
   more before it changes colour.

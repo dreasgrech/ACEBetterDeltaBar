@@ -27,6 +27,11 @@
  *   shot     for headless screenshots (a Chromium run with --virtual-time-budget delivers one
  *            animation frame and no more, so frames are driven from timers, which do advance)
  *   solo     no control panel: the stage fills the window, for cropping a screenshot
+ *   cut      the game's lap-invalidated notice has arrived for this lap
+ *   flag     the timing model's invalid flag is up (a lap that went invalid)
+ *   driver   the delta is against another driver
+ *   hold=N   start the scripted lap N seconds in (with `shot`, the state to photograph a moment later, trend and all)
+ *   set:key=value   any option, e.g. set:fasterSide=left or set:background=none (repeatable)
  */
 window.PreviewFlags = location.hash.slice(1).split(",");
 
@@ -94,7 +99,8 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
           <span class="key" data-key="n">N</span> new lap</span>
     <button id="btn-demo" class="on">auto demo</button>
     <button id="btn-noref">no reference</button>
-    <button id="btn-invalid">invalid lap</button>
+    <button id="btn-invalid">invalid flag</button>
+    <button id="btn-cut">cut notice</button>
     <button id="btn-driver">vs driver</button>
     <button id="btn-hide">hide HUD</button>
     <button id="btn-focus" class="on">focused car</button>
@@ -111,6 +117,17 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 0, npos: 0, delta_time_drivername: "" };
 window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", current: "0:00.000", invalid: false };
+window.ModelUIRealtimeLeaderboard = { lines: [{ focused: true, car_number: 666 }] };
+/** The game's engine, as far as the widget uses it: UI notifications (the "cut notice" button sends one). */
+window.engine = (function () {
+    const handlers = {};
+
+    return {
+        on: function (name, cb) { handlers[name] = cb; return { clear: function () { delete handlers[name]; } }; },
+        trigger: function () {},
+        notify: function (message) { if (handlers.UINotification) { handlers.UINotification(message); } }
+    };
+}());
 
 const Preview = (function () {
 
@@ -236,6 +253,11 @@ const Preview = (function () {
         q("#btn-demo").addEventListener("click", function () { setDemo(!state.demo); });
         toggleButton("#btn-noref", function () { return state.noref; }, function (on) { state.noref = on; });
         toggleButton("#btn-invalid", function () { return window.ModelTiming.invalid; }, function (on) { window.ModelTiming.invalid = on; });
+        // the game's "lap invalidated" notice for our car, as the log recorded it: the tag stays until the lap ends
+        q("#btn-cut").addEventListener("click", function () {
+            window.engine.notify({ type: "UINotificationType_SessionPenalty",
+                tuples: [{ values: ["{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"] }] });
+        });
         toggleButton("#btn-driver", function () { return window.ModelCurrentCar.delta_time_drivername !== ""; },
             function (on) { window.ModelCurrentCar.delta_time_drivername = on ? "M. Verstappen" : ""; });
         toggleButton("#btn-hide", function () { return document.body.classList.contains(ACEUIAppLoader.HUD_HIDDEN_CLASS); },
@@ -276,9 +298,35 @@ const Preview = (function () {
 
         if (window.PreviewFlags.indexOf("full") >= 0) { ACEUIAppLoader.settings.set("betterdeltabar", "layout", "full"); }
 
+        // states and options forced from the URL, for the screenshot matrix (see the flags at the top)
+        window.PreviewFlags.forEach(function (flag) {
+            const setting = /^set:([A-Za-z]+)=(.+)$/.exec(flag);
+            const hold = /^hold=([\d.]+)$/.exec(flag);
+
+            // strings stay strings (a choice like decimals stores "2"); the range control coerces numbers itself
+            if (setting) {
+                const raw = setting[2].replace(/_/g, " ");
+
+                ACEUIAppLoader.settings.set("betterdeltabar", setting[1], raw === "true" ? true : (raw === "false" ? false : raw));
+            }
+
+            if (hold) { state.lapStart = performance.now() - Number(hold[1]) * 1000; }
+        });
+
+        if (window.PreviewFlags.indexOf("driver") >= 0) { window.ModelCurrentCar.delta_time_drivername = "M. Verstappen"; q("#btn-driver").classList.add("on"); }
+
+        if (window.PreviewFlags.indexOf("flag") >= 0) { window.ModelTiming.invalid = true; q("#btn-invalid").classList.add("on"); }
+
+        // the cut notice needs the widget attached and one frame in, so it knows the lap it is on
+        if (window.PreviewFlags.indexOf("cut") >= 0) {
+            setTimeout(function () { q("#btn-cut").dispatchEvent(new MouseEvent("click", { bubbles: true })); }, 100);
+        }
+
         // a screenshot wants a lap under way: the headless run's virtual-time budget decides how far round
         // it gets (36 s from here lands in the third corner: the lap still up, time being lost right now)
-        if (window.PreviewFlags.indexOf("shot") >= 0) { state.lapStart = performance.now() - LAP_S * 1000 * 0.02; }
+        if (window.PreviewFlags.indexOf("shot") >= 0 && !window.PreviewFlags.some(function (f) { return f.indexOf("hold=") === 0; })) {
+            state.lapStart = performance.now() - LAP_S * 1000 * 0.02;
+        }
 
         requestAnimationFrame(step);
     };

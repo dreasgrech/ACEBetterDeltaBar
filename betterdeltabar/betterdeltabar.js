@@ -155,14 +155,16 @@ const BetterDeltaBar = (function () {
      * (`engine.on("UINotification")`, components.js NotificationPanel). A session-penalty
      * message carries `tuples[0].values`: "[{PENALTY_..._KEY} #<car number>", the reason key,
      * the penalty type key]; a track-limits cut in practice came as "{PENALTY_CLEARED_KEY}
-     * #666", reason Track Limits, type "LAP INVALIDATED" (2026-09-22). The type key is matched
-     * loosely on "invalid" and the car number against the focused leaderboard line, so another
-     * car's penalty online is not ours. The timing flag alone cannot tell this apart from a pit
-     * exit (see above), so this is what makes the tag appear on a first lap.
+     * #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"] for a
+     * track-limits cut in practice (2026-09-22). The type key is matched exactly and the car
+     * number against the focused leaderboard line, so another car's penalty online is not
+     * ours. The timing flag alone cannot tell this apart from a pit exit (see above), so this
+     * is what makes the tag appear on a first lap.
      */
     const NOTIFICATION_EVENT = "UINotification";
     const PENALTY_NOTIFICATION = "UINotificationType_SessionPenalty";
-    const INVALIDATED_MARK = "invalid";
+    /** The penalty type key the game sends for a lap invalidation (measured in game: a track-limits cut, reason InvestigationType_Racecar_Cut). A l10n id, so the same in every language. */
+    const LAP_INVALIDATED_TYPE = "lblNotificationPenalty_LAP_INVALIDATED";
     const CAR_NUMBER_MARK = "#";
     /**
      * The notice comes once, and Escape/resume rebuilds the HUD page, so a cut is remembered
@@ -208,8 +210,10 @@ const BetterDeltaBar = (function () {
     const CLASS = {
         root: "ace-betterdeltabar",
         dragging: "dragging",
-        /** The line above the bar: who the delta is against, the no-reference note, the invalid tag. */
+        /** The line above the bar: who the delta is against and the no-reference note on the left, the invalid tag on the right. */
         top: "bd-top",
+        topLeft: "bd-top-left",
+        topRight: "bd-top-right",
         vs: "bd-vs",
         status: "bd-status",
         invalidTag: "bd-invalid-tag",
@@ -496,10 +500,16 @@ const BetterDeltaBar = (function () {
 
     /** The widget's markup: top line, the bar with the figure, the lap trace, the lap-time cells. */
     const markup = function () {
+        // two groups that are always there, so the tag sits at the right even when the left
+        // group is empty (an auto margin did not do that in the game's Cohtml)
         return el("div", CLASS.top)
+            + el("div", CLASS.topLeft)
             + el("div", CLASS.vs) + close("div")
             + el("div", CLASS.status) + NO_REFERENCE_TEXT + close("div")
+            + close("div")
+            + el("div", CLASS.topRight)
             + el("div", CLASS.invalidTag) + INVALID_TEXT + close("div")
+            + close("div")
             + close("div")
             + el("div", CLASS.stack)
             + el("div", CLASS.bar)
@@ -608,6 +618,7 @@ const BetterDeltaBar = (function () {
             lapCut: false,              // the game announced this lap invalidated (a notification), whatever the flag says
             notifications: null,        // the engine.on handle for the notification event, cleared in detach
             lastRawInvalid: null,       // the game's flag last seen, so a change is logged once
+            lastFrameAt: 0,             // when the last frame ran; a long gap is a stall the ring must not span
             lastLog: 0,
             attract: false,
             scaler: null,               // me.scale handle: the loader owns panel scaling
@@ -632,6 +643,7 @@ const BetterDeltaBar = (function () {
         const decimals = options[SETTING.decimals];
         const numberColour = options[SETTING.numberColour];
         const compact = options[SETTING.layout] === LAYOUT_COMPACT;
+        const traceWasOn = state.traceOn;
 
         state.rangeMs = RANGES[options[SETTING.range]] || RANGES[RANGE_DEFAULT];
         state.decimals = DECIMALS[decimals] || DECIMALS[DECIMALS_DEFAULT];
@@ -663,6 +675,10 @@ const BetterDeltaBar = (function () {
         setClass(root, CLASS.barTrend, options[SETTING.barColour] === COLOUR_TREND);
         setClass(root, CLASS.bgLight, options[SETTING.bg] === BACKGROUND_LIGHT);
         setClass(root, CLASS.bgNone, options[SETTING.bg] === BACKGROUND_NONE);
+
+        // the trace switched on mid-lap: its slots still hold whatever lap was driven while it
+        // was off, which is not this lap; blank them and let this lap draw from here
+        if (state.traceOn && !traceWasOn) { clearTrace(state); }
 
         state.lastText = "";
         state.lastLeft = "";
@@ -714,6 +730,13 @@ const BetterDeltaBar = (function () {
         return x;
     };
 
+    /** A lap time field as a number, or null: the game sends 0 or -1 for "none" (the stock clamps it to 0), and a lap is never negative. */
+    const lapTimeOf = function (x) {
+        const ms = deltaOf(x);
+
+        return ms !== null && ms > 0 ? ms : null;
+    };
+
     /** A timing string as the game sends it, or "" when the field is not a string. */
     const timeString = function (timing, key) {
         return timing && typeof timing[key] === "string" ? timing[key] : "";
@@ -752,7 +775,7 @@ const BetterDeltaBar = (function () {
 
         return {
             delta: delta,
-            predicted: deltaOf(car.predicted_lap_time_ms),
+            predicted: lapTimeOf(car.predicted_lap_time_ms),
             lapMs: deltaOf(car.current_lap_time_ms),
             lapCount: car.low_frequency && typeof car.low_frequency.total_lap_count === "number" ? car.low_frequency.total_lap_count : null,
             npos: npos,
@@ -806,7 +829,7 @@ const BetterDeltaBar = (function () {
     const isOwnLapInvalidated = function (penalty) {
         const own = ownCarNumber();
 
-        if (penalty.type.toLowerCase().indexOf(INVALIDATED_MARK) < 0) { return false; }
+        if (penalty.type !== LAP_INVALIDATED_TYPE) { return false; }
 
         // no number on either side: nothing to compare, take it as ours (single player, one car)
         return penalty.car === null || own === null || penalty.car === own;
@@ -1136,8 +1159,11 @@ const BetterDeltaBar = (function () {
     };
 
     /**
-     * A cut remembered before a HUD reload, if it belongs to the lap now running: the same lap
-     * count when the game gives one, else a lap time that has not wrapped and a flag still up.
+     * A cut remembered before a HUD reload, if it belongs to the lap now running. The lap time
+     * must not have gone backwards since the cut (a lap's clock only runs forward; a new
+     * session's first lap starts from zero, so a cut kept from the last session does not
+     * match it), and when the game gives a lap count it must be the same lap. With no lap
+     * count, the flag must still be up as well.
      */
     const restoreCut = function (state, m) {
         const kept = me.recall(CUT_KEY, null);
@@ -1145,10 +1171,8 @@ const BetterDeltaBar = (function () {
 
         if (!kept || typeof kept !== "object") { return; }
 
-        if (typeof kept.lap === "number" && m.lapCount !== null) {
-            same = kept.lap === m.lapCount;
-        } else if (typeof kept.at === "number" && m.lapMs !== null) {
-            same = m.lapMs >= kept.at && m.rawInvalid;
+        if (typeof kept.at === "number" && m.lapMs !== null && m.lapMs >= kept.at) {
+            same = typeof kept.lap === "number" && m.lapCount !== null ? kept.lap === m.lapCount : m.rawInvalid;
         }
 
         if (same) {
@@ -1215,6 +1239,13 @@ const BetterDeltaBar = (function () {
         state.lapMs = m.lapMs;
         state.lapCount = m.lapCount;
 
+        // a stall longer than the sampler's gap (alt-tab, a loading hitch): the sampler restarts
+        // its clock, and the ring must restart too, or the next rate spans the stall as if it
+        // were a second of driving
+        if (state.lastFrameAt !== 0 && now - state.lastFrameAt > TREND_GAP_MS) { resetRing(state); }
+
+        state.lastFrameAt = now;
+
         if (m.delta === null) {
             resetTrend(state);
         } else {
@@ -1249,7 +1280,13 @@ const BetterDeltaBar = (function () {
         state.attract = Boolean(options[SETTING.attract]);
         applyView(state);
         clearTrace(state);
+        // the root may carry the markup and classes of an earlier life (the drawer switching the
+        // app off and on reuses it): put every per-frame class where the fresh state says it is,
+        // or a stale colour stays until that state next changes
+        [CLASS.gain, CLASS.lose, CLASS.strong, CLASS.faster, CLASS.slower].forEach(function (name) { setClass(root, name, false); });
         setClass(root, CLASS.flat, true);
+        setClass(state.predCell, CLASS.predFaster, false);
+        setClass(state.predCell, CLASS.predSlower, false);
 
         // kept, because attach runs again every time the app drawer switches this app back
         // on: a listener per attach would pile up, each holding a state nobody draws any more
