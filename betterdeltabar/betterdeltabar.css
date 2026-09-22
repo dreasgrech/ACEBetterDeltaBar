@@ -142,14 +142,18 @@ body.hide-hud .ace-betterdeltabar {
     color: rgba(255, 255, 255, 0.45);
 }
 
+/* a quiet outlined tag, not a solid red block: an invalid lap is information, not an alarm */
 .ace-betterdeltabar.bd-invalid .bd-invalid-tag {
     display: block;
     margin-left: auto;
-    padding: 0 0.6em;
-    background: #ff1418;
-    color: #fff;
+    padding: 0 0.5em;
+    border: 1px solid rgba(255, 20, 24, 0.7);
+    border-radius: 0.15em;
+    background: rgba(255, 20, 24, 0.14);
+    color: #ff7a7c;
     font-weight: 700;
-    line-height: 1.5em;
+    letter-spacing: 0.1em;
+    line-height: 1.35em;
 }
 
 /* ---- the bar and the figure ----------------------------------------------------------- */

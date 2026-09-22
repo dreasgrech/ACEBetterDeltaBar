@@ -39,7 +39,8 @@
  *     npos                    float 0..1, position along the lap (npos_perc is the same in %)
  *     delta_time_drivername   string, who the delta is against when it is not your own lap
  *     ModelTiming.best / .ideal / .last   strings "1:43.445", "" when there is none
- *     ModelTiming.invalid     the lap flag
+ *     ModelTiming.current     the running lap as a string, "Outlap" or "" before a timed lap
+ *     ModelTiming.invalid     the lap flag; true on the outlap too, so it is read only on a timed lap
  *
  * A positive delta is time lost (slower than the reference), as everywhere in the game.
  * The stock bar grows to the RIGHT for time gained; so does this one by default, and the
@@ -128,6 +129,13 @@ const BetterDeltaBar = (function () {
     const NO_TIME_TEXT = "-:--.---";
     const NO_REFERENCE_TEXT = "no reference lap";
     const INVALID_TEXT = "INVALID";
+    /**
+     * What ModelTiming.current reads on the lap out of the pits, before a timed lap has
+     * begun. The game flags that lap invalid from the start; the stock lap-time widget hides
+     * itself while current reads this (or nothing), so the flag is only shown on a lap that
+     * is actually being timed. Same rule here.
+     */
+    const OUTLAP_TEXT = "Outlap";
     const VS_TEXT = "vs ";
     const OPTIMAL_LABEL = "SESSION OPTIMAL";
     const BEST_LABEL = "SESSION BEST";
@@ -655,6 +663,11 @@ const BetterDeltaBar = (function () {
         return timing && typeof timing[key] === "string" ? timing[key] : "";
     };
 
+    /** A lap is being timed: the current lap reads as a time, not "Outlap" and not nothing. */
+    const isTimedLap = function (current) {
+        return current !== "" && current !== OUTLAP_TEXT;
+    };
+
     /**
      * What the widget shows, read from the game's models, or null when there is no focused
      * car. The delta is the raw `delta_time_ms` when it is sane (finer than the UI one for
@@ -690,7 +703,8 @@ const BetterDeltaBar = (function () {
             best: timeString(timing, "best"),
             optimal: timeString(timing, "ideal"),
             last: timeString(timing, "last"),
-            invalid: Boolean(timing && timing.invalid === true)
+            // the outlap is flagged invalid before any lap is timed; only a timed lap's flag is news
+            invalid: Boolean(timing && timing.invalid === true) && isTimedLap(timeString(timing, "current"))
         };
     };
 
@@ -930,7 +944,9 @@ const BetterDeltaBar = (function () {
     const renderInfo = function (state, m) {
         const pred = formatLap(m.predicted);
         const hasDriver = state.driverOn && m.driver !== "";
-        const invalid = state.invalidOn && m.invalid;
+        // the flag only matters once there is a reference to lose a lap against; the first lap
+        // out of the pits is flagged from the start, with nothing to compare, and reads as alarm
+        const invalid = state.invalidOn && m.invalid && state.hasRef === true;
         const topOn = hasDriver || invalid || state.hasRef === false;
         let predState = 0;
 

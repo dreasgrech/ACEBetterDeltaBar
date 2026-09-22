@@ -18,7 +18,7 @@ Everything is read from the globals the stock UI mirrors every frame (see
 | `ModelCurrentCar.delta_time_drivername` | who the delta is against when it is not your own lap | the "vs Name" line |
 | `ModelTiming.best` | the best lap as the game formats it, `""` when none | shown as is; parsed to ms to colour the prediction |
 | `ModelTiming.ideal` / `.last` | the session optimal (best sectors added up) and the last lap, formatted | the other two cells, shown as they come |
-| `ModelTiming.invalid` | the lap is invalid | the INVALID tag |
+| `ModelTiming.invalid` | the lap is invalid; **true on the first lap out of the pits too**, and in a fresh session `current` already reads a running time then, so the stock widget's own "not Outlap" rule does not hide it | the INVALID tag, only while `current` is a time (not `"Outlap"`, not `""`) AND a reference lap exists; drawn as a quiet outlined tag, since a solid red block read as "something is broken" on every first lap (2026-09-22) |
 
 Positive is time lost, as everywhere in the game. The stock widget clamps the delta to
 +/-1000 ms for its bar width and colours bar and figure by the sign; it colours nothing by

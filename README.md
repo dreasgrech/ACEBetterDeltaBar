@@ -89,7 +89,7 @@ app drawer with its own switch and an **OPTIONS** button.
 | **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best, red when it does not. |
 | **LAST LAP** | Your last lap, off by default. |
 | **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
-| **INVALID** | Appears when the game has invalidated the lap. |
+| **INVALID** | A small outlined tag when the game has invalidated the lap you are timing against a reference. Not on the lap out of the pits, which the game flags from the start with nothing to compare against. |
 | **vs Name** | Appears when the delta is against another driver rather than your own lap. |
 
 With no reference lap yet the number is a dim placeholder and the top line says so. The

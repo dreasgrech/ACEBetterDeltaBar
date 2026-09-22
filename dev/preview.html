@@ -110,7 +110,7 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
 /** Fake game side: the models the widget reads, driven by keys or a scripted lap. */
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 0, npos: 0, delta_time_drivername: "" };
-window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", invalid: false };
+window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", current: "0:00.000", invalid: false };
 
 const Preview = (function () {
 
@@ -179,6 +179,8 @@ const Preview = (function () {
         const delta = Math.round(state.manualDelta);
 
         car.current_lap_time_ms = Math.round(lapMs);
+        // the game's running lap string: a time on a timed lap ("Outlap" before one, which hides the invalid tag)
+        window.ModelTiming.current = state.noref ? "Outlap" : Math.floor(lapMs / 60000) + ":" + String(Math.floor((lapMs % 60000) / 1000)).padStart(2, "0") + "." + String(Math.round(lapMs % 1000)).padStart(3, "0");
         car.npos = phase;
         car.delta_time_ms = state.noref ? 0 : delta;
         car.delta_time_ms_ui = state.noref ? SENTINEL : 10 * Math.round(delta / 10);

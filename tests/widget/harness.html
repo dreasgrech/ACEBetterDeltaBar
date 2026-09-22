@@ -15,7 +15,7 @@
 // Fake game models, mutable by tests. The sentinel is what the game sends with no reference lap.
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 5000, npos: 0.0, delta_time_drivername: "" };
-window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
+window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid: true };
 </script>
 <!-- the ACEUIAppLoader library from the sibling checkout, in load order (in game it is part of cohtml.js) -->
 <script src="../../../ACEUIAppLoader/tests/lib/lib.js"></script>
@@ -89,7 +89,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
 
     t("readModel: null without a focused car; the sentinel is no delta; the raw delta is preferred; npos_perc stands in for npos", function () {
         car.has_focused_car = false; eq(B.readModel(), null); car.has_focused_car = true;
-        let m = B.readModel(); eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.optimal, ""); eq(m.last, ""); eq(m.invalid, false);
+        let m = B.readModel(); eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.optimal, ""); eq(m.last, "");
+        eq(m.invalid, false, "the outlap is flagged invalid by the game, and that is not news");
+        timing.current = ""; m = B.readModel(); eq(m.invalid, false, "nor is no lap at all");
+        timing.current = "0:12.345"; m = B.readModel(); eq(m.invalid, true, "a timed lap's flag is");
+        timing.invalid = false; m = B.readModel(); eq(m.invalid, false); timing.current = "Outlap";
         setDelta(-235); m = B.readModel(); eq(m.delta, -235, "raw ms"); eq(m.lapMs, 5000);
         car.delta_time_ms = "junk"; m = B.readModel(); eq(m.delta, -240, "falls back to the UI copy");
         car.npos = undefined; car.npos_perc = 25; m = B.readModel(); near(m.npos, 0.25, 1e-9, "npos from npos_perc");
@@ -249,9 +253,13 @@ window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
         timing.ideal = ""; timing.last = "";
     });
 
-    t("an invalid lap shows the tag on the top line", function () {
-        timing.invalid = true; frame(); ok(has(root, "bd-invalid")); ok(has(root, "bd-top-on"));
+    t("an invalid lap shows the tag on the top line, but not on the outlap, which the game flags before any lap is timed", function () {
+        timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "outlap: no tag"); ok(!has(root, "bd-top-on"));
+        timing.current = "0:12.345"; frame(); ok(has(root, "bd-invalid"), "a timed lap: the tag"); ok(has(root, "bd-top-on"));
         eq(getComputedStyle(q(".bd-invalid-tag")).display, "block");
+        const kept = car.delta_time_ms;
+        setDelta(null); frame(); ok(!has(root, "bd-invalid"), "no reference lap: no tag either, whatever the flag says");
+        setDelta(kept); frame(); ok(has(root, "bd-invalid"), "back with the reference");
         timing.invalid = false; frame(); ok(!has(root, "bd-invalid")); ok(!has(root, "bd-top-on"));
     });
 
@@ -306,7 +314,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", invalid: false };
         set("showOptimal", false); ok(has(root, "bd-nooptimal")); eq(getComputedStyle(q(".bd-cell-optimal")).display, "none");
         set("showLast", true); ok(!has(root, "bd-nolast")); eq(getComputedStyle(q(".bd-cell-last")).display, "flex", "last cell shown");
         set("showLast", false); set("showBest", false); set("showPredicted", false); eq(getComputedStyle(q(".bd-cells")).display, "none", "no cell row when every cell is off");
-        set("showInvalid", false); timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "invalid ignored when off"); timing.invalid = false;
+        set("showInvalid", false); timing.invalid = true; timing.current = "0:12.345"; frame(); ok(!has(root, "bd-invalid"), "invalid ignored when off"); timing.invalid = false;
         set("showDriver", false); car.delta_time_drivername = "Max"; frame(); ok(!has(root, "bd-hasdriver"), "driver ignored when off"); car.delta_time_drivername = "";
         set("trendBand", "coarse"); eq(state.band, 40); set("trendWindow", "0.5 s"); eq(state.windowSamples, 10); eq(state.windowMs, 500);
         set("background", "none"); ok(has(root, "bd-bg-none"));
