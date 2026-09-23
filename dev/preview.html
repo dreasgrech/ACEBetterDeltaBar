@@ -27,7 +27,7 @@
  *   shot     for headless screenshots (a Chromium run with --virtual-time-budget delivers one
  *            animation frame and no more, so frames are driven from timers, which do advance)
  *   solo     no control panel: the stage fills the window, for cropping a screenshot
- *   cut      the game's lap-invalidated notice has arrived for this lap
+ *   cut      the game's lap-invalidated notice has arrived for this lap, and the flag rose with it (as in the game)
  *   reason=Name   the reason that notice carries: any member of the game's InvestigationType enum, with or
  *            without the prefix (reason=Driver_Ran_No_Stint gives "INVALID · FAILED TO MEET STINT REQUIREMENT")
  *   reasons  open the gallery: every reason on the tag at once, both layouts, with the widget's current
@@ -148,7 +148,7 @@ if (window.PreviewFlags.indexOf("shot") >= 0) {
 window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
                            current_lap_time_ms: 0, npos: 0, delta_time_drivername: "", car_location: "Track" };
 window.ModelTiming = { best: "1:43.445", ideal: "1:43.102", last: "1:43.987", current: "0:00.000", invalid: false };
-window.ModelUIRealtimeLeaderboard = { lines: [{ focused: true, car_number: 666 }] };
+window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 666, is_focused: true }] };   // the model that says which car is ours
 /** The game's engine, as far as the widget uses it: UI notifications (the "cut notice" button sends one). */
 window.engine = (function () {
     const handlers = {};
@@ -301,6 +301,8 @@ const Preview = (function () {
         q("#btn-cut").addEventListener("click", function () {
             window.engine.notify({ type: "UINotificationType_SessionPenalty",
                 tuples: [{ values: ["{PENALTY_CLEARED_KEY} #666", q("#reason").value, "lblNotificationPenalty_LAP_INVALIDATED"] }] });
+            // the game raises the flag 20 to 48 ms after the notice, and the tag needs the flag: the notice only names the reason
+            window.ModelTiming.invalid = true; q("#btn-invalid").classList.add("on");
         });
         toggleButton("#btn-driver", function () { return window.ModelCurrentCar.delta_time_drivername !== ""; },
             function (on) { window.ModelCurrentCar.delta_time_drivername = on ? "M. Verstappen" : ""; });

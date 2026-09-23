@@ -6,10 +6,11 @@
  * figures that must not jitter as they change, the pair the stock timers use). The two
  * colours are the stock delta bar's own: #44EA78 for time gained, #FF1418 for time lost.
  *
- * Two layouts, one markup. FULL (the default) is a broadcast-style block: a near-opaque
- * panel with hard corners, the figure sitting on the bar with the fill fading in behind
- * it from the centre to a bright tick at its end, and a row of lap-time cells under it,
- * each with a colour tab at its left edge. COMPACT (.bd-compact on the root) is the
+ * Two layouts, one markup. FULL (the default) is a broadcast-style block: a band above the
+ * bar for the top line (who the delta is against, the no-reference note, the tag), a
+ * near-opaque panel with hard corners, the figure sitting on the bar with the fill fading in
+ * behind it from the centre to a bright tick at its end, and a row of lap-time cells under
+ * it, each with a colour tab at its left edge. COMPACT (.bd-compact on the root) is the
  * iRacing shape: no panel, a thin rounded bar with a solid fill, and the figure in a
  * small dark tag under the bar, which the script moves to the fill's end when the
  * "follows the fill" option is on. The cells and the trace are hidden in compact.
@@ -25,7 +26,7 @@
  *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
  *   options       .bd-compact; .bd-faster-left (the bar grows left for time gained, and the
  *                 chevrons follow); .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
- *                 .bd-notrace .bd-noinvalid; .bd-narrow / .bd-wide;
+ *                 .bd-notrace .bd-noinvalid .bd-hide-noref; .bd-narrow / .bd-wide;
  *                 .bd-num-overall / .bd-num-white (what colours the figure; the default is the
  *                 trend); .bd-bar-trend (the fill takes the trend's colour instead of the
  *                 sign's); .bd-bg-light / .bd-bg-none
@@ -51,7 +52,10 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0;
     box-shadow: 0 0.25em 1em rgba(0, 0, 0, 0.35);
-    padding: 0;
+    /* the top line's band: 1.4em of its 0.7em font. Always reserved, so the bar never moves
+       when the line comes or goes, and inside the panel's box, so the loader's drag clamp
+       keeps the line on screen when the panel is put at the top edge */
+    padding: 0.98em 0 0 0;
     color: #fff;
     font-family: var(--font-family-main);
     font-size: 1rem;
@@ -80,6 +84,19 @@
     box-shadow: none;
 }
 
+/* with no panel behind them, the top line's and the cells' text get the shadow the compact
+   layout gives its own, and the bar's track darkens so its extent still shows */
+.ace-betterdeltabar.bd-bg-none .bd-vs,
+.ace-betterdeltabar.bd-bg-none .bd-status,
+.ace-betterdeltabar.bd-bg-none .bd-time,
+.ace-betterdeltabar.bd-bg-none .bd-label {
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
+}
+
+.ace-betterdeltabar.bd-bg-none .bd-bar {
+    background: rgba(0, 0, 0, 0.12);
+}
+
 /* after the backgrounds, so the drag outline wins over a transparent border */
 .ace-betterdeltabar.dragging {
     border-color: rgba(255, 255, 255, 0.7);
@@ -91,8 +108,7 @@
 .ace-betterdeltabar.bd-nolast .bd-cell-last,
 .ace-betterdeltabar.bd-nopred .bd-cell-pred,
 .ace-betterdeltabar.bd-nooptimal.bd-nobest.bd-nolast.bd-nopred .bd-cells,
-.ace-betterdeltabar.bd-notrace .bd-trace,
-.ace-betterdeltabar.bd-noinvalid .bd-invalid-tag {
+.ace-betterdeltabar.bd-notrace .bd-trace {
     display: none;
 }
 
@@ -109,33 +125,28 @@ body.hide-hud .ace-betterdeltabar {
 
 /* ---- top line: who the delta is against, no reference, invalid ---------------------- */
 
-/* only there while it has something to say (.bd-top-on), and OUT of the flow: it floats just
-   above the panel, so the bar and everything under it never move when a tag comes or goes.
-   The font-size is the root's, so the em lengths here are the panel's own. */
+/* only there while it has something to say (.bd-top-on), in the band the root's padding
+   reserves for it, so the bar and everything under it never move when a tag comes or goes.
+   The band sits inside the panel and takes its background: a background of its own painted
+   over the panel's darkened the strip whenever the line came and lightened it when it went
+   (layout review, 2026-09-23). The font-size is the root's, so the em lengths here are the
+   panel's own. */
 .ace-betterdeltabar .bd-top {
     display: none;
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 100%;
+    top: 0;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
     height: 1.4em;
     padding: 0 0.85em;
-    background: rgba(6, 7, 8, 0.86);
+    background: transparent;
     font-size: 0.7em;
     font-weight: 600;
     letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.62);
-}
-
-.ace-betterdeltabar.bd-bg-light .bd-top {
-    background: rgba(0, 0, 0, 0.45);
-}
-
-.ace-betterdeltabar.bd-bg-none .bd-top {
-    background: transparent;
 }
 
 .ace-betterdeltabar.bd-top-on .bd-top {
@@ -186,30 +197,38 @@ body.hide-hud .ace-betterdeltabar {
     font-family: rajdhani-numerals-mono, var(--font-family-main);
 }
 
-/* a quiet outlined tag, not a solid red block: an invalid lap is information, not an alarm */
+/* a quiet outlined tag, not a solid red block: an invalid lap is information, not an alarm.
+   Its box is in the band's units (line height and border in em) so it fits the 0.98em band
+   at every scale: 1.2 + 2 * 0.08 = 1.36 tag-em = 0.952 root-em */
 .ace-betterdeltabar.bd-invalid .bd-invalid-tag {
     display: block;
     padding: 0 0.5em;
-    border: 1px solid rgba(255, 20, 24, 0.7);
+    border: 0.08em solid rgba(255, 20, 24, 0.7);
     border-radius: 0.15em;
     background: rgba(255, 20, 24, 0.14);
     color: #ff7a7c;
     font-weight: 700;
     letter-spacing: 0.1em;
-    line-height: 1.35em;
+    line-height: 1.2em;
 }
 
 /* the same tag, quiet, for a lap that does not count with nothing wrong: PIT LANE, OUTLAP */
 .ace-betterdeltabar.bd-pit .bd-invalid-tag {
     display: block;
     padding: 0 0.5em;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 0.08em solid rgba(255, 255, 255, 0.3);
     border-radius: 0.15em;
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.65);
     font-weight: 700;
     letter-spacing: 0.1em;
-    line-height: 1.35em;
+    line-height: 1.2em;
+}
+
+/* after the two tag rules, which it must beat at equal specificity: the option hides the tag
+   whatever the lap says */
+.ace-betterdeltabar.bd-noinvalid .bd-invalid-tag {
+    display: none;
 }
 
 /* ---- the bar and the figure ----------------------------------------------------------- */
@@ -357,6 +376,13 @@ body.hide-hud .ace-betterdeltabar {
     color: #ff1418;
 }
 
+/* the compact figure with no background: its own shadow, before the strong-trend glow below
+   so the glow (as many classes, later) still wins */
+.ace-betterdeltabar.bd-compact.bd-bg-none .bd-delta {
+    background: transparent;
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
+}
+
 .ace-betterdeltabar.bd-strong.bd-gain .bd-delta {
     text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8), 0 0 0.4em rgba(68, 234, 120, 0.7);
 }
@@ -366,10 +392,19 @@ body.hide-hud .ace-betterdeltabar {
 }
 
 /* the figure coloured by the overall sign instead (the stock's rule), or not at all: these
-   come after the trend rules and carry one class more, so they win */
+   come after the trend rules at the same specificity, so they win by order */
 .ace-betterdeltabar.bd-num-overall .bd-delta,
 .ace-betterdeltabar.bd-num-white .bd-delta {
     color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
+}
+
+/* the strong-trend glow carries two classes more than those, so under either option it is
+   put back to the plain shadow here, and only the shadow: the colour stays the option's */
+.ace-betterdeltabar.bd-num-overall.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-num-overall.bd-strong.bd-lose .bd-delta,
+.ace-betterdeltabar.bd-num-white.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-num-white.bd-strong.bd-lose .bd-delta {
     text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
 }
 
@@ -381,11 +416,13 @@ body.hide-hud .ace-betterdeltabar {
     color: #ff1418;
 }
 
-/* no reference lap: a dim placeholder whatever the colour rule */
+/* no reference lap: a dim placeholder whatever the colour rule. It keeps the figure's own
+   shadow: taking it away left the placeholder as the one text with none, which with the
+   panel's background off is what the widget shows against the scene at the start of every
+   session (layout review, 2026-09-23) */
 .ace-betterdeltabar.bd-noref .bd-delta,
 .ace-betterdeltabar.bd-num-overall.bd-noref .bd-delta {
     color: rgba(255, 255, 255, 0.4);
-    text-shadow: none;
 }
 
 /* chevrons: border triangles, faded out unless the trend points their way. They point the
@@ -580,6 +617,11 @@ body.hide-hud .ace-betterdeltabar {
     box-shadow: none;
 }
 
+/* the compact panel's own border is transparent (above, after the drag rule): the drag outline must still win */
+.ace-betterdeltabar.bd-compact.dragging {
+    border-color: rgba(255, 255, 255, 0.7);
+}
+
 .ace-betterdeltabar.bd-compact.bd-narrow {
     width: 22em;
 }
@@ -641,11 +683,6 @@ body.hide-hud .ace-betterdeltabar {
 
 .ace-betterdeltabar.bd-compact.bd-bg-none .bd-bar {
     background: rgba(0, 0, 0, 0.12);
-}
-
-.ace-betterdeltabar.bd-compact.bd-bg-none .bd-delta {
-    background: transparent;
-    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
 }
 
 /* the figure under the bar, in a tag; the script moves the whole row to the fill's end when asked */

@@ -33,7 +33,7 @@ the iRacing shape:
 
 <p align="center"><img width="560" alt="The compact layout: a thin bar with the number in a tag under it" src="docs/images/widget-compact.png" /></p>
 
-Either layout can add a **lap trace** that draws the delta across the lap as you drive it,
+The full layout can add a **lap trace** that draws the delta across the lap as you drive it,
 so the corner that cost the time is still on the screen at the end of the straight. Drag
 the widget anywhere on the HUD and it stays there.
 
@@ -86,16 +86,16 @@ app drawer with its own switch and an **OPTIONS** button.
 | **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
 | **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
 | **SESSION BEST** | Your best lap of the session, with a purple tab. |
-| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best, red when it does not. |
+| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best by 20 ms or more, red when it trails it by 20 ms or more, white in between. |
 | **LAST LAP** | Your last lap, off by default. |
 | **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
-| **INVALID · TRACK LIMITS** | A small red outlined tag when the game invalidates the lap you are on, with the game's own reason when it gave one (a track-limits cut names itself, in a race a few seconds after the flag, when the game has ruled on it; every reason the game has is known). Shown with or without a reference lap, until you cross the line. |
-| **PIT LANE**, **OUTLAP** | The same tag, quiet and grey, on a lap that does not count with nothing wrong: PIT LANE while you are in the pit lane, OUTLAP for the rest of a lap that began there. Cut the track on that lap and the tag turns red with the reason as soon as the game rules on it. On some tracks the timing line lies inside the pit lane, so the lap the game flags at the pit exit is the one after the line; it reads OUTLAP too. Speeding out of the pits gets you the game's warning and nothing else: it does not invalidate a lap. |
+| **INVALID · TRACK LIMITS** | A small red outlined tag when the game invalidates the lap you are on, with the game's own reason when it gave one (a track-limits cut names itself, in a race a few seconds after the flag, when the game has ruled on it; every reason the game has is known). Shown with or without a reference lap, for as long as the game's own flag is up on that lap (in practice, until you cross the line). |
+| **PIT LANE**, **OUTLAP** | The same tag, quiet and grey, on a lap that does not count with nothing wrong: PIT LANE while you are in the pit lane, OUTLAP for the rest of a lap you spent any of in it. Cut the track on that lap and the tag turns red with the reason as soon as the game rules on it. On some tracks the timing line lies inside the pit lane, so the lap the game flags at the pit exit is the one after the line; it reads OUTLAP too. Speeding out of the pits gets you the game's warning and nothing else: it does not invalidate a lap. |
 | **vs Name** | Appears whenever the game names a driver for its delta, as its own bar does above itself. In practice against your own lap it never does; expect it where the game compares you to a rival. |
 
 With no reference lap yet the number is a dim placeholder and a line above the bar counts the
 lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. That line
-floats above the widget, so the bar never moves when it appears. If you would
+has its own band above the bar, so the bar never moves when it appears. If you would
 rather see nothing until there is a delta, switch on *Hide until a reference lap*. The
 reference is whatever the game itself is using for its delta, so it changes exactly when
 the stock one does.
@@ -117,7 +117,7 @@ bold.
 - *Width*: narrow, **normal** or wide.
 - *Faster side*: which way the bar grows for time gained: **right**, as the game's own bar
   does, or left, as iRacing's does.
-- *Bar range*: the delta that fills the bar (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
+- *Bar range*: the delta that fills the bar from the centre to its end (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
 
 **Colour**
@@ -139,11 +139,9 @@ bold.
 The window shows only the switches the layout on screen has, and swaps them when you
 change the layout.
 
-**Look**
+**Look** (folded by default)
 - *Background*: **dark**, light or none. In the full layout that is the panel; in the
   compact one, the bar's track and the tag.
-
-**Demo**
 - *Attract mode*, **off**: a scripted lap, for recording without driving.
 
 **Reset to defaults** puts every value back.
