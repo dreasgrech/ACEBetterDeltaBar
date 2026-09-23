@@ -357,15 +357,83 @@ body.hide-hud .ace-betterdeltabar {
     transform: translateX(0%);
 }
 
+/* the tag and its chevrons, in one row the lean classes below move sideways */
+.ace-betterdeltabar .bd-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+/* the figure: one string, in a box sized from it, the text centred */
 .ace-betterdeltabar .bd-delta {
     min-width: 4.5em;
     text-align: center;
+    white-space: nowrap;
     color: rgba(255, 255, 255, 0.92);
     font-family: rajdhani-numerals-mono, var(--font-family-main);
     font-size: 1.45em;
     font-weight: 700;
     line-height: 1em;
     text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
+}
+
+/* the lean: the tag and its chevrons move so the figure's point, not the middle of its text, is on
+   the bar's centre mark, and the tag keeps even margins around the digits. The script picks the class
+   from the widths either side of the point, in half glyphs (see LEAN_CLASSES); each moves the row by
+   (lean x 0.511 / 4 + 0.255 / 2 - 0.102) em of the figure. rajdhani-numerals-mono-bold's digits and
+   signs are 0.511em wide, its point and colon 0.255em, and the point is inked 0.038 to 0.166em into
+   its glyph (read from the font file, and 0.099em measured in game, 2026-09-23). The row's em is the
+   figure's divided by its font-size, 1.45 here and 1.2 in the compact layout, hence two tables.
+   "-0.235" is lean 2: two glyphs before the point and three after, so the middle of the text is right
+   of the point and the row moves right. Earlier attempts pinned the point to the middle of a
+   centred tag instead, which left an empty glyph's width on one side (and broke in game twice while
+   passing in the browser); see docs/notes.md. */
+.ace-betterdeltabar.bd-lean-n7 .bd-group {
+    transform: translateX(-1.26em);
+}
+
+.ace-betterdeltabar.bd-lean-n6 .bd-group {
+    transform: translateX(-1.074em);
+}
+
+.ace-betterdeltabar.bd-lean-n5 .bd-group {
+    transform: translateX(-0.889em);
+}
+
+.ace-betterdeltabar.bd-lean-n4 .bd-group {
+    transform: translateX(-0.704em);
+}
+
+.ace-betterdeltabar.bd-lean-n3 .bd-group {
+    transform: translateX(-0.519em);
+}
+
+.ace-betterdeltabar.bd-lean-n2 .bd-group {
+    transform: translateX(-0.333em);
+}
+
+.ace-betterdeltabar.bd-lean-n1 .bd-group {
+    transform: translateX(-0.148em);
+}
+
+.ace-betterdeltabar.bd-lean-0 .bd-group {
+    transform: translateX(0.037em);
+}
+
+.ace-betterdeltabar.bd-lean-1 .bd-group {
+    transform: translateX(0.222em);
+}
+
+.ace-betterdeltabar.bd-lean-2 .bd-group {
+    transform: translateX(0.407em);
+}
+
+.ace-betterdeltabar.bd-lean-3 .bd-group {
+    transform: translateX(0.593em);
+}
+
+.ace-betterdeltabar.bd-lean-4 .bd-group {
+    transform: translateX(0.778em);
 }
 
 .ace-betterdeltabar.bd-gain .bd-delta {
@@ -632,9 +700,20 @@ body.hide-hud .ace-betterdeltabar {
 
 .ace-betterdeltabar.bd-compact .bd-cells,
 .ace-betterdeltabar.bd-compact .bd-trace,
-.ace-betterdeltabar.bd-compact .bd-tick,
-.ace-betterdeltabar.bd-compact .bd-mid {
+.ace-betterdeltabar.bd-compact .bd-tick {
     display: none;
+}
+
+/* the mark the fill grows from. In the full layout the panel's own track shows where the middle
+   is, so a hairline is enough; the compact bar is a solid block on the scene with a solid fill
+   beside it, and the middle was not readable at all (reported from the game, 2026-09-23), so
+   here the mark is wider, bright, and drawn over the fill with a dark edge to hold it apart
+   from a green or red one */
+.ace-betterdeltabar.bd-compact .bd-mid {
+    width: 0.14em;
+    margin-left: -0.07em;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0.12em rgba(0, 0, 0, 0.85);
 }
 
 /* compact has no panel: the line floats over the scene, its tags carrying their own backgrounds */
@@ -681,14 +760,67 @@ body.hide-hud .ace-betterdeltabar {
     background: rgba(0, 0, 0, 0.55);
 }
 
+/* not fully transparent: the fill's edge is antialiased against whatever is behind it, and over
+   the moving scene that blend changes every frame, which reads as a flickering edge (reported from
+   the game, 2026-09-23). A track with some body of its own gives the edge something constant to
+   land on, and is still far lighter than the dark default */
 .ace-betterdeltabar.bd-compact.bd-bg-none .bd-bar {
-    background: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.35);
 }
 
 /* the figure under the bar, in a tag; the script moves the whole row to the fill's end when asked */
 .ace-betterdeltabar.bd-compact .bd-main {
     top: 1.05em;
     bottom: 0;
+}
+
+/* the lean in the compact layout, where the figure is 1.2em of the row */
+.ace-betterdeltabar.bd-compact.bd-lean-n7 .bd-group {
+    transform: translateX(-1.042em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n6 .bd-group {
+    transform: translateX(-0.889em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n5 .bd-group {
+    transform: translateX(-0.736em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n4 .bd-group {
+    transform: translateX(-0.583em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n3 .bd-group {
+    transform: translateX(-0.429em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n2 .bd-group {
+    transform: translateX(-0.276em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-n1 .bd-group {
+    transform: translateX(-0.123em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-0 .bd-group {
+    transform: translateX(0.031em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-1 .bd-group {
+    transform: translateX(0.184em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-2 .bd-group {
+    transform: translateX(0.337em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-3 .bd-group {
+    transform: translateX(0.491em);
+}
+
+.ace-betterdeltabar.bd-compact.bd-lean-4 .bd-group {
+    transform: translateX(0.644em);
 }
 
 .ace-betterdeltabar.bd-compact .bd-delta {

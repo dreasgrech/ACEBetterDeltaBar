@@ -332,7 +332,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ok(engineHandlers.UINotification, "subscribed again");
     });
 
-    t("a steady frame writes nothing to the DOM; a moving one writes only the fills, the tick and the figure", function () {
+    t("a steady frame writes nothing to the DOM; a moving one writes only the fills, the tick and the figure's two halves", function () {
         const changes = [];
         const watcher = new MutationObserver(function (records) { records.forEach(function (r) { changes.push(r); }); });
         watcher.observe(root, { attributes: true, characterData: true, childList: true, subtree: true });
@@ -344,7 +344,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(changes.length, 0, "steady: no writes at all in sixty frames: " + changes.map(describe).join(" | "));
         setDelta(-400); frame(); watcher.takeRecords().forEach(function (r) { changes.push(r); });
         const touched = changes.map(function (r) { return r.target.nodeType === 3 ? r.target.parentNode.className : r.target.className; }).sort();
-        ok(changes.length >= 3 && changes.length <= 4, "one frame's change: the fill, the tick track and the figure's text, at most a class: " + changes.length);
+        ok(changes.length >= 3 && changes.length <= 5, "one frame's change: the fill, the tick track and the figure's two halves, at most a class: " + changes.length);
         ok(touched.every(function (c) { return /bd-(right|left|ticktrack|delta|main)|ace-betterdeltabar/.test(c); }), "nothing else touched: " + touched.join(", "));
         watcher.disconnect();
     });
@@ -1235,6 +1235,92 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
+    t("both layouts mark the middle of the bar, and the compact mark is drawn over the fill so a delta either side of it can be read against it", function () {
+        const mid = q(".bd-mid"), bar = q(".bd-bar");
+        setDelta(-500); frame();
+        eq(getComputedStyle(mid).display, "block", "the full layout draws the mark");
+        const full = mid.getBoundingClientRect(), fullBar = bar.getBoundingClientRect();
+        near(full.left + full.width / 2, fullBar.left + fullBar.width / 2, 1, "at the middle of the bar");
+        ok(full.height > 0 && full.top >= fullBar.top - 0.5 && full.bottom <= fullBar.bottom + 0.5, "spanning the bar and no more");
+        set("layout", "compact"); frame();
+        eq(getComputedStyle(mid).display, "block", "the compact layout draws it too");
+        const thin = q(".bd-mid").getBoundingClientRect(), compactBar = q(".bd-bar").getBoundingClientRect();
+        near(thin.left + thin.width / 2, compactBar.left + compactBar.width / 2, 1, "at the middle there as well");
+        ok(thin.width > full.width, "wider than the full layout's hairline: " + thin.width.toFixed(2) + " vs " + full.width.toFixed(2));
+        ok(getComputedStyle(mid).backgroundColor.indexOf("255, 255, 255") >= 0, "and bright against a solid fill");
+        // the fill grows from the middle, so the mark and the fill's near edge meet: the mark is painted last and stays visible
+        const marks = Array.prototype.slice.call(root.querySelectorAll(".bd-bar > *"));
+        ok(marks.indexOf(mid) > marks.indexOf(q(".bd-left")) && marks.indexOf(mid) > marks.indexOf(q(".bd-right")), "the mark comes after both fills, so it is drawn over them");
+        // the one fill that shares the mark's colour: the trend option's flat white. The mark is brighter, so it does not vanish into it
+        set("barColour", "trend"); run(1500); ok(has(root, "bd-flat"), "a steady delta reads flat");
+        const markColour = getComputedStyle(mid).backgroundColor, flatFill = getComputedStyle(q(".bd-left")).backgroundColor;
+        ok(markColour !== flatFill, "the mark and the flat fill are not the same white (" + markColour + " vs " + flatFill + ")");
+        ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
+    });
+
+    t("the faster-side pills are offered in the order they read on screen, left then right, and each one does what it says", function () {
+        const pane = document.createElement("div");
+        center.appendChild(pane);
+        try {
+            ACEUIAppLoader.settings.render(me.name, pane);
+            const pills = Array.prototype.filter.call(pane.querySelectorAll("span"), function (el) { return el.textContent === "Left" || el.textContent === "Right"; });
+            eq(pills.length, 2, "two pills"); eq(pills[0].textContent, "Left", "the left-hand pill says Left"); eq(pills[1].textContent, "Right");
+            pills[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); frame();
+            eq(state.fasterRight, false, "clicking Left puts the faster side on the left"); ok(has(root, "bd-faster-left"));
+            pills[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); frame();
+            eq(state.fasterRight, true, "and clicking Right puts it back"); ok(!has(root, "bd-faster-left"));
+        } finally {
+            ACEUIAppLoader.settings.teardown(me.name);
+            pane.remove();
+            ACEUIAppLoader.settings.reset(me.name); frame();
+        }
+    });
+
+    t("the figure's point is on the bar's centre mark and its tag hugs the digits: the tag and chevrons lean by the glyphs either side of the point", function () {
+        const leans = ["bd-lean-n7", "bd-lean-n6", "bd-lean-n5", "bd-lean-n4", "bd-lean-n3", "bd-lean-n2", "bd-lean-n1", "bd-lean-0", "bd-lean-1", "bd-lean-2", "bd-lean-3", "bd-lean-4"], LEAN_MIN = -7;
+        const leanOn = function () { return leans.filter(function (c) { return has(root, c); }); };
+        const group = q(".bd-group");
+        const shiftPx = function () { return new DOMMatrix(getComputedStyle(group).transform).m41; };
+        const fontPx = function () { return parseFloat(getComputedStyle(figure).fontSize); };
+        // the lean follows the text: the width after the point less the width before, in half glyphs (a colon is one, a digit two)
+        const cases = [[-235, "-0.235", "bd-lean-2"], [12345, "+12.345", "bd-lean-0"], [0, "0.000", "bd-lean-4"], [62345, "+1:02.345", "bd-lean-n3"], [602345, "+10:02.345", "bd-lean-n5"], [null, "--.---", "bd-lean-2"]];
+        cases.forEach(function (c) {
+            setDelta(c[0]); frame();
+            eq(figure.textContent, c[1]); eq(leanOn().join(" "), c[2], c[1] + " leans " + c[2] + ", and no other lean is on");
+        });
+        set("decimals", "2"); setDelta(-235); frame(); eq(figure.textContent, "-0.24"); eq(leanOn().join(" "), "bd-lean-0", "two decimals: -0.24 balances about its point");
+        setDelta(602345); frame(); eq(figure.textContent, "+10:02.35"); eq(leanOn().join(" "), "bd-lean-n7", "the widest figure there is leans furthest left");
+        ACEUIAppLoader.settings.reset(me.name);
+        // every lean moves the row by (lean x CELL / 4 + POINT / 2 - INK) of the figure's font, in both
+        // layouts: the stylesheet's two tables, worked out from the game font's metrics
+        const CELL = 0.511, POINT = 0.255, INK = 0.102;
+        ["full", "compact"].forEach(function (layout) {
+            set("layout", layout); setDelta(-235); frame();
+            const was = leanOn()[0];
+            leans.forEach(function (c, i) {
+                leans.forEach(function (other) { root.classList.remove(other); });
+                root.classList.add(c);
+                const lean = i + LEAN_MIN;
+                near(shiftPx(), (lean * CELL / 4 + POINT / 2 - INK) * fontPx(), 0.002 * fontPx(), layout + ": " + c + " moves the row " + shiftPx().toFixed(2) + " px");
+            });
+            leans.forEach(function (other) { root.classList.remove(other); });
+            root.classList.add(was);
+            // the chevrons move with the tag: the gaps either side of it stay equal
+            const tag = figure.getBoundingClientRect(), l = q(".bd-arrow-l").getBoundingClientRect(), r = q(".bd-arrow-r").getBoundingClientRect();
+            near(tag.left - l.right, r.left - tag.right, 0.5, layout + ": the chevrons stand the same distance from the tag");
+        });
+        // the compact tag hugs the text with even margins: its width is the text's and its padding
+        set("layout", "compact"); setDelta(-235); frame();
+        const cs = getComputedStyle(figure);
+        eq(cs.paddingLeft, cs.paddingRight, "the same padding either side");
+        const range = document.createRange(); range.selectNodeContents(figure);
+        near(figure.getBoundingClientRect().width, range.getBoundingClientRect().width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), 1, "and nothing else: the tag is the text's width");
+        // a root used before with another lean on it gets the right one, and only that one
+        B.detach(state); root.classList.add("bd-lean-n3"); state = B.attach(root); setDelta(-235); frame();
+        eq(leanOn().join(" "), "bd-lean-2", "a stale lean is taken off on attach");
+        ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
+    });
+
     t("a reset to the pits ends the cut lap: a cut lap that never saw the pit lane is not restored with the car in the pit lane, whatever the lap clock says", function () {
         car.low_frequency = { total_lap_count: 2 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 300; frame();
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); timing.invalid = true; frame(); ok(has(root, "bd-invalid"));
@@ -1488,7 +1574,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(cells.style.display, "none", "compact: the cell switches go"); eq(trace.style.display, "none"); eq(follow.style.display, "flex", "and the follow switch comes");
         ok(pane.textContent.indexOf("Background") >= 0, "background stays: it applies to both");
         eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.94)", "compact bar, dark background");
-        set("background", "none"); eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.12)", "background none dims the compact bar's track");
+        set("background", "none"); eq(getComputedStyle(q(".bd-bar")).backgroundColor, "rgba(0, 0, 0, 0.35)", "background none dims the compact bar's track without clearing it: a transparent track makes the fill's edge shimmer over the moving scene");
         eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0)", "and clears the tag");
         set("background", "light"); eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0.55)", "light: a lighter tag");
         ACEUIAppLoader.settings.reset(me.name); frame();

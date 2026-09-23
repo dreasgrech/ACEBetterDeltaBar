@@ -59,7 +59,18 @@ One trap found by the harness: a `section` spec and a value spec must not share 
 (the first version had a "layout" section and a "layout" choice, and the choice could not
 be set).
 
-The compact bar's black is 0.94 alpha: 0.8 read as mid grey against a bright sky in game.
+The compact bar's black is 0.94 alpha: 0.8 read as mid grey against a bright sky in game. With the
+background option off its track is 0.35, not nothing: the fill's edge is antialiased against whatever
+lies behind it, and over the moving scene that blend changes every frame, which the eye reads as a
+flickering edge (reported from the game, 2026-09-23). The track's own body gives the edge something
+constant to land on.
+
+Both layouts mark the middle of the bar, which is the reference lap: the fill grows from there, so
+without it a small fill near the centre says nothing about how far off you are (reported from the
+game, 2026-09-23, where the compact layout hid the mark). In the full layout the panel's own track
+gives the eye a frame and a hairline at 12% white is enough. The compact bar is a solid block over
+the scene with a solid fill beside it, so its mark is 0.14em wide, white at 0.9, with a dark glow
+to hold it apart from a green or red fill, and it is drawn after both fills so it is never covered.
 
 Six cascade findings from the layout review of 2026-09-23, all order or units: the drag
 outline rule came before the compact block, whose transparent border then beat it, so the
@@ -417,6 +428,32 @@ Full background in `ACEGameInternals/docs/gameface-notes.md`.
 
 ## The look
 
+The figure is written as two halves that meet at the decimal point, each taking the same share of the
+box, so the point is always at the box's middle. Centred as one string it sat wherever the glyph widths
+left it: the digits of the numeral font are wide and the sign and the point are narrow, which in game
+put the point a full glyph left of the bar's own centre mark (measured from a screenshot, 2026-09-23,
+10.5 px on a 122 px tag). The eye anchors on the point, so the whole readout looked offset. A half
+longer than its share spills outwards, away from the point, which also keeps the point still as the
+number gains or loses a digit. How it got there (all 2026-09-23, each seen in game): the
+figure was split into two halves meeting at the point, first by flex from a content-sized box, then
+by halves placed at the middle with no width of their own; both overlapped in game while passing in
+the browser, because the engine worked no width out of the text. Stated halves then worked, but in
+the compact tag, which had side padding, the engine measured the halves against the content box and
+placed them from the padding edge, 12.5 px left of the middle, and the point glyph (inked at the
+left of its cell) added 13 px more. With the point finally pinned to the middle of a centred tag, the
+digits were not balanced about it ("--" before, "---" after), which left an empty glyph's width on the
+left of the tag (36 px against 16 px). The user chose the tag hugging the digits with the point still
+on the mark, so the figure is one string again, in a tag sized from it (which the engine has always
+drawn correctly), and the row holding the tag and its chevrons leans: it is moved by the distance
+between the middle of the text and the point's ink. In the game's mono font (read from the font file:
+digits and signs 0.511em, point and colon 0.255em, the point inked 0.038 to 0.166em into its glyph)
+that is (lean x 0.511 / 4 + 0.255 / 2 - 0.102) em, the lean being the width after the point less the
+width before, in half glyphs, so twelve classes cover every figure from "+10:02.34" (-7) to "0.000"
+(4). A first table taken from a screenshot counted the point as a full glyph and was 0.128em out. The tag therefore sits slightly right of the
+bar's centre for a figure under ten seconds with three decimals; the point is what lines up. Nothing in the suite could have caught that, because
+the suite runs in a browser; see "What the tests cannot see" below.
+
+
 Follows the stock HUD widgets so it reads as part of the game: a dark translucent panel
 (a slight vertical gradient, hairline border, soft shadow, small radii), the game's
 Rajdhani through `--font-family-main`, `rajdhani-numerals-mono` for the figures so they do
@@ -479,6 +516,21 @@ are held to: it runs on past the hour while the car sits in the pit lane, and a 
 then drew nothing until the next line crossing (same review). The widget draws while it waits
 for a lap clock: the wait is for the lap bookkeeping only, and switching attract off with no
 clock about used to leave the scripted frame standing until the clock came (second pass).
+
+## What the tests cannot see
+
+The three harnesses run in a desktop browser. They drive the real widget through the real models, so
+they prove what it decides, what it writes and when; they cannot prove how the game's engine lays it
+out. Renoir is not the browser's layout engine, and where a layout leans on the engine measuring
+content, the two disagree. That is how a figure that passed every case in the browser reached the game
+with its two halves on top of each other (2026-09-23): the halves were sized by flex from a zero basis
+inside a box whose width came from its own content, which the browser resolves by measuring the
+content and Renoir resolves as nothing at all. The finding is recorded with the rest in
+`ACEGameInternals/docs/gameface-notes.md`. It is not a kit rule: the same pattern is right where the
+box's width is stated, which is how the four lap-time cells divide the panel, and a stylesheet cannot
+be read to tell one from the other. So the rule is a habit rather than a check: lay a thing out the way
+something already proven in game is laid out, and see it in the game before believing it. The rendered
+sheets in `dev/` are a browser's opinion of the layout, not the game's.
 
 ## How it is tested
 

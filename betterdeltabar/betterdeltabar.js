@@ -360,6 +360,20 @@ const BetterDeltaBar = (function () {
     const WIDTH_NARROW = "narrow";
     const WIDTH_NORMAL = "normal";
     const WIDTH_WIDE = "wide";
+    /**
+     * The figure's point is kept on the bar's centre mark while its tag hugs the text: the row holding
+     * the tag is moved by the distance between the middle of the text and the point, which in the
+     * game's mono font depends only on the glyphs either side of it. The lean is that difference in
+     * half glyphs (the width after the point less the width before, a NARROW glyph counting one and
+     * any other two), and the stylesheet holds the distance for each lean in LEAN_CLASSES, LEAN_MIN
+     * first: from "+10:02.34" (-7) to "0.000" (4).
+     */
+    const POINT = ".";
+    const NARROW = ":.";
+    const LEAN_MIN = -7;
+    const LEAN_MAX = 4;
+    const LEAN_CLASSES = ["bd-lean-n7", "bd-lean-n6", "bd-lean-n5", "bd-lean-n4", "bd-lean-n3", "bd-lean-n2", "bd-lean-n1", "bd-lean-0", "bd-lean-1", "bd-lean-2", "bd-lean-3", "bd-lean-4"];
+
     const SIDE_RIGHT = "right";
     const SIDE_LEFT = "left";
     const COLOUR_TREND = "trend";
@@ -391,6 +405,8 @@ const BetterDeltaBar = (function () {
         tickTrack: "bd-ticktrack",
         tick: "bd-tick",
         main: "bd-main",
+        /** The tag and its chevrons, moved together by the lean so the point is on the centre mark. */
+        group: "bd-group",
         delta: "bd-delta",
         arrow: "bd-arrow",
         arrowLeft: "bd-arrow-l",
@@ -524,7 +540,8 @@ const BetterDeltaBar = (function () {
         choice(SETTING.layout, "Layout", LAYOUT_FULL, [LAYOUT_FULL, LAYOUT_COMPACT],
             "full: the figure on the bar and the lap times under it; compact: a thin bar with the figure in a tag"),
         choice(SETTING.width, "Width", WIDTH_NORMAL, [WIDTH_NARROW, WIDTH_NORMAL, WIDTH_WIDE]),
-        choice(SETTING.side, "Faster side", SIDE_RIGHT, [SIDE_RIGHT, SIDE_LEFT], "which way the bar grows for time gained; the game's own grows right"),
+        // the pills are shown in the order given, so a left-right choice is listed left first, whatever the default is
+        choice(SETTING.side, "Faster side", SIDE_RIGHT, [SIDE_LEFT, SIDE_RIGHT], "which way the bar grows for time gained; the game's own grows right"),
         choice(SETTING.range, "Bar range", RANGE_DEFAULT, Object.keys(RANGES), "the delta that fills the bar from the centre to its end, and the trace"),
         choice(SETTING.decimals, "Decimals", DECIMALS_DEFAULT, Object.keys(DECIMALS)),
         me.scaleSpec({ min: SCALE_MIN, max: SCALE_MAX, step: SCALE_STEP }),
@@ -670,6 +687,33 @@ const BetterDeltaBar = (function () {
             + close("div");
     };
 
+    /** A string's width in half glyphs of the figure's font. */
+    const halfGlyphs = function (text) {
+        return text.split("").reduce(function (sum, glyph) { return sum + (NARROW.indexOf(glyph) >= 0 ? 1 : 2); }, 0);
+    };
+
+    /** The figure's lean (see LEAN_CLASSES): how far its point is from the middle of the text, in half glyphs. */
+    const leanOf = function (text) {
+        const at = text.lastIndexOf(POINT);
+        const lean = at < 0 ? 0 : halfGlyphs(text.slice(at + 1)) - halfGlyphs(text.slice(0, at));
+
+        return Math.min(LEAN_MAX, Math.max(LEAN_MIN, lean));
+    };
+
+    /** Put the class for a lean on the root, taking the last one off. */
+    const setLean = function (state, lean) {
+        if (lean === state.lean) {
+            return;
+        }
+
+        if (state.lean !== null) {
+            setClass(state.root, LEAN_CLASSES[state.lean - LEAN_MIN], false);
+        }
+
+        state.lean = lean;
+        setClass(state.root, LEAN_CLASSES[lean - LEAN_MIN], true);
+    };
+
     /** The widget's markup: top line, the bar with the figure, the lap trace, the lap-time cells. */
     const markup = function () {
         // two groups that are always there, so the tag sits at the right even when the left
@@ -691,9 +735,11 @@ const BetterDeltaBar = (function () {
             + el("div", CLASS.tickTrack) + el("div", CLASS.tick) + close("div") + close("div")
             + close("div")
             + el("div", CLASS.main)
+            + el("div", CLASS.group)
             + el("div", CLASS.arrow + " " + CLASS.arrowLeft) + close("div")
             + el("div", CLASS.delta) + NO_DELTA_TEXTS[DECIMALS_DEFAULT] + close("div")
             + el("div", CLASS.arrow + " " + CLASS.arrowRight) + close("div")
+            + close("div")
             + close("div")
             + close("div")
             + traceMarkup()
@@ -721,6 +767,8 @@ const BetterDeltaBar = (function () {
      */
     const create = function (root) {
         root.classList.add(CLASS.root);
+        // a root used before may still carry a lean; the first figure drawn puts the right one on
+        LEAN_CLASSES.forEach(function (lean) { setClass(root, lean, false); });
 
         if (!root.querySelector("." + CLASS.bar)) { root.innerHTML = markup(); }
 
@@ -736,6 +784,7 @@ const BetterDeltaBar = (function () {
             tickTrack: q("." + CLASS.tickTrack),
             main: q("." + CLASS.main),
             figure: q("." + CLASS.delta),
+            lean: null,                 // the lean whose class is on the root
             predCell: q("." + CLASS.cellPred),
             optimalTime: q("." + CLASS.cellOptimal + " ." + CLASS.time),
             bestTime: q("." + CLASS.cellBest + " ." + CLASS.time),
@@ -1373,6 +1422,7 @@ const BetterDeltaBar = (function () {
         if (text !== state.lastText) {
             state.lastText = text;
             state.figure.textContent = text;
+            setLean(state, leanOf(text));
         }
 
         if (sign !== state.sign) {

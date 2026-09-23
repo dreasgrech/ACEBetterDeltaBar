@@ -81,7 +81,7 @@ app drawer with its own switch and an **OPTIONS** button.
 
 | | |
 |---|---|
-| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round; *Bar* in the Colour section can make it follow the trend instead). A bright tick marks the end of the fill. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
+| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round; *Bar* in the Colour section can make it follow the trend instead). A bright tick marks the end of the fill, and the centre it grows from is marked too, in both layouts, so a short fill still says where you stand. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
 | **The number** | The same delta as a figure, `-0.235` for time gained, `+0.235` for time lost. Its **colour is the trend**: is the number going down (green, you are gaining) or up (red, you are losing) over the last second? White means it is holding. |
 | **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
 | **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
