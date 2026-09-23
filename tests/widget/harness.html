@@ -498,7 +498,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.low_frequency.total_lap_count += 1; car.current_lap_time_ms = 20; frame(); ok(!has(root, "bd-invalid")); car.low_frequency = undefined; car.current_lap_time_ms = 200; frame();
     });
 
-    t("every penalty type that is not an invalidation leaves the tag alone; the flag rising within the window of one takes its reason, before or after, and none outside it", function () {
+    t("every penalty type that is not an invalidation leaves the tag alone; a flag with no verdict reads plain INVALID whatever notices surround it, and a verdict names it whenever it comes", function () {
         const others = ["PenaltyType_Warning", "PenaltyType_Reprimand", "PenaltyType_Fine", "PenaltyType_Remove_Best_Laptime", "PenaltyType_Drop_Of_Grid_Position",
             "PenaltyType_Start_From_Pitlane", "PenaltyType_Time_Penalty_Seconds", "PenaltyType_Penalty_Laps", "PenaltyType_Drop_Of_Place_In_Classification",
             "PenaltyType_Drive_Through", "PenaltyType_Stop_And_Go", "PenaltyType_Disqualification", "PenaltyType_MP_TeleportToPit", "lblNotificationPenalty_NO_GAIN"];
@@ -508,23 +508,26 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             ok(!has(root, "bd-invalid") && !has(root, "bd-pit") && !has(root, "bd-top-on"), type + ": no tag"); eq(state.lapCut, false, type); eq(me.recall("lap", null), null, type);
             eq(B.invalidates(B.readPenalty(penalty("{PENALTY_ADDED_KEY} #666", "r", type))), "", type + " is not an invalidation");
         });
-        // the game does void the lap for one of them: the flag rises a tick after the notice, and the tag names the notice's reason
+        // a penalty the game does not tie to the lap, a tick before the flag: the flag stands, the tag stays plain (the game gave no reason)
         car.current_lap_time_ms = 8000; frame();
         notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Collision", "PenaltyType_Drive_Through")); frame();
         car.current_lap_time_ms = 8100; timing.invalid = true; frame();
-        ok(has(root, "bd-invalid")); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 COLLISION", "the flag took the notice's reason"); eq(me.recall("lap", null).reason, "COLLISION");
-        // the other order: the flag first, the notice a few frames later (the collision notice of a moment ago was the
-        // last lap's, and a reason belongs to the lap its notice came on: it does not carry over the line)
+        ok(has(root, "bd-invalid")); eq(q(".bd-invalid-tag").textContent, "INVALID", "a collision penalty is not a verdict on the lap"); eq(me.recall("lap", null).reason, "");
+        // the other order, a few frames after the flag: the same
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
         timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "no reason yet");
         run(100); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Unsafe_Rejoin", "PenaltyType_Stop_And_Go")); frame();
-        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 UNSAFE REJOIN", "filled in"); eq(me.recall("lap", null).reason, "UNSAFE REJOIN", "and remembered");
-        // outside the window: no attribution either way
+        eq(q(".bd-invalid-tag").textContent, "INVALID", "an unsafe-rejoin penalty is not one either"); eq(me.recall("lap", null).reason, "");
+        // a verdict names the flag whenever it comes: two seconds before it, or two seconds after
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
-        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Wrong_Way", "PenaltyType_Warning")); frame(); run(2000);
-        car.current_lap_time_ms = 12000; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "a notice two seconds old is not the reason");
-        run(2000); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Wrong_Way", "PenaltyType_Warning")); frame();
-        eq(q(".bd-invalid-tag").textContent, "INVALID", "nor one two seconds late");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_Time_Penalty_Seconds")); frame(); run(2000);
+        ok(!has(root, "bd-invalid"), "a verdict with no flag marks nothing: the flag is the truth");
+        car.current_lap_time_ms = 12000; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "the flag two seconds after a cut penalty: plain, the verdict was logged and not kept");
+        run(2000); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_Time_Penalty_Seconds")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "a cut penalty two seconds after the flag names it"); eq(me.recall("lap", null).reason, "TRACK LIMITS");
+        ok(B.isLapVerdict(B.readPenalty(penalty("#666", "InvestigationType_Racecar_Cut", "PenaltyType_Warning"))), "any type with the cut reason is a verdict");
+        ok(B.isLapVerdict(B.readPenalty(penalty("#666", "InvestigationType_Collision", "lblNotificationPenalty_NO_GAIN"))), "NO GAIN is a verdict whatever it names");
+        ok(!B.isLapVerdict(B.readPenalty(penalty("#666", "InvestigationType_Collision", "PenaltyType_Drive_Through"))), "a drive-through for a collision is not");
         // another car's notice within the window: not ours, no reason
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
         notify(penalty("{PENALTY_ADDED_KEY} #12", "InvestigationType_Collision", "PenaltyType_Drive_Through")); frame();
@@ -535,6 +538,77 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 300; car.car_location = "Track"; timing.invalid = true; frame();
         eq(q(".bd-invalid-tag").textContent, "OUTLAP"); ok(!has(root, "bd-invalid"));
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame(); ok(!has(root, "bd-top-on"));
+    });
+
+    t("a race's ruling on a cut comes seconds after the flag as NO GAIN, and names the cut; a speeding warning never does; a ruling after the line is not pinned on the next lap", function () {
+        // Road Atlanta 2026-09-23 00:40:31: the flag at 0.215 of the lap, the notice 4.8 s later
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 22522; timing.invalid = true; frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID", "the flag first, no reason yet");
+        run(4800); car.current_lap_time_ms = 27300; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "the ruling names the cut"); eq(me.recall("lap", null).reason, "TRACK LIMITS", "and is remembered");
+        ok(window.__log.some(function (l) { return l.indexOf("ms after the flag: TRACK LIMITS") >= 0; }), "with the delay logged");
+        ok(window.__log.some(function (l) { return l.indexOf("penalty values: \"{PENALTY_CLEARED_KEY} #666\", \"InvestigationType_Racecar_Cut\", \"lblNotificationPenalty_NO_GAIN\"") >= 0; }), "and every value the game sent, whole");
+        // a second ruling on the same lap changes nothing
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Collision", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "the first reason stands");
+        // a cut lap that drives into the pits and is warned for speeding there keeps its plain INVALID: speeding never voids a lap
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
+        car.current_lap_time_ms = 80000; car.car_location = "Pitlane"; frame();
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Speeding", "PenaltyType_Warning")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID", "not SPEEDING"); eq(me.recall("lap", null).reason, "");
+        car.current_lap_time_ms = 20; car.car_location = "Track"; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+        // a ruling that arrives after the line belongs to the lap that is over: the new lap is not marked
+        car.current_lap_time_ms = 110000; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the new lap is clean"); eq(state.lapCut, false); eq(me.recall("lap", null), null);
+        ok(window.__log.some(function (l) { return l.indexOf("with no flag up on this lap") >= 0; }), "and the dropped verdict is on record");
+    });
+
+    t("a cut on the out-lap: the flag at the pit exit reads OUTLAP until the game's NO GAIN verdict names the cut, then INVALID \u00b7 TRACK LIMITS, kept through a reload", function () {
+        // Road Atlanta 2026-09-23 01:15:54 to 01:18:24, as recorded: the pit entry flags lap 1 at once (PIT LANE); the timing
+        // line is inside the pit lane, so lap 2 begins there (PIT LANE); the flag rises 115 ms after Pitexit, the track follows
+        car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Track"; frame(); car.current_lap_time_ms = 107393; car.car_location = "Pitentry"; frame();
+        car.current_lap_time_ms = 107513; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "PIT LANE", "the pit entry"); ok(!has(root, "bd-invalid"));
+        car.current_lap_time_ms = 111842; car.car_location = "Pitlane"; frame();
+        car.current_lap_time_ms = 125; timing.invalid = false; frame(); eq(q(".bd-invalid-tag").textContent, "PIT LANE", "the new lap, in the pit lane"); eq(state.pitLap, true);
+        car.current_lap_time_ms = 68963; car.car_location = "Pitexit"; frame(); car.current_lap_time_ms = 69081; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "PIT LANE", "the exit");
+        car.current_lap_time_ms = 79162; car.car_location = "Track"; frame(); eq(q(".bd-invalid-tag").textContent, "OUTLAP", "on the track: the quiet tag"); ok(!has(root, "bd-invalid")); eq(state.lapCut, false);
+        // 01:18:24: the game's verdict, a cut on this lap; the cut wins over the pit lap
+        car.current_lap_time_ms = 133679; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "red now"); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS"); eq(state.lapCut, true);
+        eq(me.recall("lap", null).reason, "TRACK LIMITS"); eq(me.recall("lap", null).pit, true, "still a pit lap too");
+        ok(window.__log.some(function (l) { return l.indexOf("flagged at the pit exit: a cut after all, TRACK LIMITS") >= 0; }), "said so in the log");
+        // Escape/resume on the same lap: the cut and the pit lap both come back
+        B.detach(state); root.classList.remove("bd-invalid"); car.current_lap_time_ms = 140000; state = B.attach(root); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "restored"); eq(state.pitLap, true);
+        // a second verdict on the same lap changes nothing; the next lap is clean
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Collision", "lblNotificationPenalty_NO_GAIN")); frame(); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame(); ok(!has(root, "bd-top-on")); eq(me.recall("lap", null), null);
+        // a lap that began flagged (the exit merges before the line elsewhere) and then draws a verdict: the same
+        car.current_lap_time_ms = 20; timing.invalid = true; frame(); car.current_lap_time_ms = 3000; frame(); ok(!has(root, "bd-top-on"), "a lap that started flagged shows nothing");
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "the verdict names it");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("the own car is read from the cars-on-track model first, which moves every frame, then the leaderboards, which the stock only fetches while its widget is on the HUD", function () {
+        const boards = window.ModelUIRealtimeLeaderboard;
+        window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 3, is_focused: false }, { car_number: 41, is_focused: true }] };
+        eq(B.readPenalty(penalty("{PENALTY_CLEARED_KEY} #41", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")).car, 41);
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 500; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #41", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
+        ok(has(root, "bd-invalid"), "car 41 is ours by the track model, whatever the stale leaderboard says");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 500; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
+        ok(!has(root, "bd-invalid"), "and the leaderboard's 666 is not, while the track model says 41");
+        window.ModelCarsOnTrack = undefined;
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
+        ok(has(root, "bd-invalid"), "without the track model the leaderboard decides again");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+        window.ModelUIRealtimeLeaderboard = boards;
     });
 
     t("a reset to the pits ends the cut lap: a cut lap that never saw the pit lane is not restored with the car in the pit lane, whatever the lap clock says", function () {

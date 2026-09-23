@@ -249,17 +249,33 @@ const BetterDeltaBar = (function () {
     const INVALID_LAP_TYPE = "PenaltyType_InvalidLap";
     const INVALID_NEXT_LAP_TYPE = "PenaltyType_InvalidNextLap";
     /**
-     * The flag is the truth about the lap; the notice is the reason. The game decides per
-     * session which penalties also void the lap, and nothing in the notice's type says so
-     * for the dozen real penalty types (a drive-through for a collision, say), so a flag
-     * rising on a lap driven wholly on the track takes its reason from the last notice for
-     * our car within this window, and a notice arriving within it after the flag fills the
-     * reason in. Measured: a cut's notice and its flag 19 ms apart, one game tick. The window
-     * is many ticks and still far short of anything a driver does twice: a notice in the pit
-     * lane cannot name a pit exit (a pit lap's flag is never a cut), and a warning followed
-     * by a real cut has the cut's own notice, which always wins.
+     * The flag is the truth about the lap; the reason comes only from what the game itself
+     * ties to the lap's validity, and never from timing. The game states two facts about a
+     * lap: `ModelTiming.invalid` (at once) and session-penalty notices (car, reason, type; no
+     * lap number, no clock). The penalty-state model holds real penalties only and stayed
+     * empty through every cut measured, and the engine's log says nothing at all. So a
+     * notice names the reason for the flag on the lap it arrives on when, and only when, the
+     * game's own words make it about the lap:
+     *
+     *   - a type that IS an invalidation: LAP_INVALIDATED (practice), InvalidLap, InvalidNextLap;
+     *   - the type NO_GAIN: the game's verdict on a cut ("no time gained"), which in a race
+     *     replaces LAP_INVALIDATED and arrives seconds after the flag (measured 2026-09-23,
+     *     Road Atlanta, three cuts: 4.4, 4.8 and 9.8 s; a cut followed by a stop on the track
+     *     never got its verdict at all), reason Racecar_Cut;
+     *   - any type whose reason is Racecar_Cut: a cut that did gain time draws a time penalty,
+     *     and the lap is void either way (the game kept a faster cut lap off `best`).
+     *
+     * Anything else for our car (a collision, an unsafe rejoin, a warning, pit-lane speeding)
+     * is not tied to the lap by anything the game sends, so it never names the tag: the lap
+     * reads plain INVALID, which is what the game said. Order and delay play no part: a
+     * verdict before the flag or seconds after it lands the same, and "the same lap" is
+     * structural (a new lap forgets the cut), so a verdict arriving after the line is dropped,
+     * and logged, rather than pinned on the lap that follows. Before 2026-09-23 this was a
+     * 500 ms window either side of the flag, tuned on practice; a race cut then read plain
+     * INVALID for the whole lap.
      */
-    const NOTICE_WINDOW_MS = 500;
+    const NO_GAIN_TYPE = "lblNotificationPenalty_NO_GAIN";
+    const CUT_REASON = "InvestigationType_Racecar_Cut";
     /**
      * Diagnostics, kept on because every line is rare and each one has answered a question:
      * the game's penalty-state model (UIPenaltyState: penalties[] of { type, time_penalty,
@@ -720,7 +736,6 @@ const BetterDeltaBar = (function () {
             pitLap: false,              // the car has been in the pit lane during this lap: the flag rising on it is the pit exit, not a cut
             nextLapInvalid: false,      // the game announced the lap that follows invalid (PenaltyType_InvalidNextLap)
             nextLapReason: "",          // and why
-            recentNotice: { reason: "", at: 0 },  // the last penalty notice for our car that was not itself an invalidation, and when (frame clock)
             cutAt: 0,                   // when this lap was marked cut (frame clock), for a reason arriving just after
             lastLocation: null,         // the car's location last seen, so a change is logged once
             nextPenaltyPoll: 0,         // frame clock time of the next fetch of the penalty-state model
@@ -904,10 +919,21 @@ const BetterDeltaBar = (function () {
         };
     };
 
-    /** The focused car's number from the leaderboards, or null when neither says. */
+    /**
+     * The focused car's number: from the cars-on-track model first (the track map keeps it
+     * fresh every frame), then the leaderboards (the stock only fetches those while its
+     * leaderboard widget is on the HUD; hidden, they hold whatever they last held, which in
+     * a race on 2026-09-23 was lines from an earlier attempt). Null when none says.
+     */
     const ownCarNumber = function () {
+        const onTrack = window.ModelCarsOnTrack;
+        const cars = onTrack && Array.isArray(onTrack.cars_on_track) ? onTrack.cars_on_track : [];
         const boards = [window.ModelUIRealtimeLeaderboard, window.ModelLeaderboard];
         let found = null;
+
+        cars.forEach(function (c) {
+            if (found === null && c && c.is_focused === true && typeof c.car_number === "number") { found = c.car_number; }
+        });
 
         boards.forEach(function (board) {
             const lines = board && Array.isArray(board.lines) ? board.lines : [];
@@ -968,6 +994,11 @@ const BetterDeltaBar = (function () {
         const own = ownCarNumber();
 
         return penalty.car === null || own === null || penalty.car === own;
+    };
+
+    /** A notice the game itself ties to the validity of the lap it comes on: its reason may name the tag. */
+    const isLapVerdict = function (penalty) {
+        return penalty.type === LAP_INVALIDATED_TYPE || penalty.type === INVALID_LAP_TYPE || penalty.type === NO_GAIN_TYPE || penalty.reason === CUT_REASON;
     };
 
     /** Which lap a penalty notification for OUR car invalidates: THIS_LAP, NEXT_LAP, or "" for none. */
@@ -1345,7 +1376,6 @@ const BetterDeltaBar = (function () {
         state.cutReason = "";
         state.pitLap = false;
         // a reason belongs to the lap its notice came on
-        state.recentNotice = { reason: "", at: 0 };
 
         if (state.nextLapInvalid) {
             state.lapCut = true;
@@ -1446,6 +1476,9 @@ const BetterDeltaBar = (function () {
 
         if (!penalty) { return; }
 
+        // the tuple's values, every one, as the game sent them: the schema says "repeated string" and nothing more
+        if (Array.isArray(message.tuples[0].values)) { log("penalty values: " + message.tuples[0].values.map(function (v) { return "\"" + v + "\""; }).join(", ")); }
+
         const which = invalidates(penalty);
 
         log("penalty notification: car " + penalty.car + ", type " + penalty.type + ", reason " + penalty.reason
@@ -1459,14 +1492,22 @@ const BetterDeltaBar = (function () {
             rememberLap(state);
         }
 
-        // any other notice for our car: the reason for a flag that rose just before, or rises just after
-        if (which === "" && isOwnCar(penalty)) {
-            state.recentNotice = { reason: reasonText(penalty.reason), at: state.lastFrameAt };
-
-            if (state.lapCut && state.cutReason === "" && state.recentNotice.reason !== "" && state.lastFrameAt - state.cutAt <= NOTICE_WINDOW_MS) {
-                state.cutReason = state.recentNotice.reason;
-                rememberLap(state);
-                log("the reason arrived after the flag: " + state.cutReason);
+        // the game's verdict on this lap (a race's NO GAIN, or a penalty for a cut) names the flag that rose before it
+        if (which === "" && isOwnCar(penalty) && isLapVerdict(penalty)) {
+            if (state.lapCut) {
+                if (state.cutReason === "") {
+                    state.cutReason = reasonText(penalty.reason);
+                    rememberLap(state);
+                    log("the verdict arrived " + (state.lastFrameAt - state.cutAt) + " ms after the flag: " + state.cutReason);
+                }
+            } else if (state.lastRawInvalid) {
+                // the flag is up but was not a cut's: the pit exit's on a pit lap (OUTLAP), or up since the lap began. The
+                // game now says this lap had a cut (Road Atlanta 2026-09-23 01:18:24, a NO GAIN on the out-lap), and a cut
+                // wins over the quiet tag: the lap is void for a reason the driver should see
+                markCut(state, reasonText(penalty.reason));
+                log("the verdict on a lap flagged " + (state.pitLap ? "at the pit exit" : "from its start") + ": a cut after all, " + state.cutReason);
+            } else {
+                log("a verdict (" + penalty.type + ", " + penalty.reason + ") with no flag up on this lap: the lap it is about is over, or the game did not void it");
             }
         }
     };
@@ -1531,7 +1572,7 @@ const BetterDeltaBar = (function () {
             // of its own: an invalidation the game gave no reason for, marked like a cut so it too
             // survives a reload; on a pit lap the rise is the pit exit (or entry) and is nothing
             if (m.invalid && !state.lapStartedInvalid && !state.lapCut && !state.pitLap) {
-                markCut(state, now - state.recentNotice.at <= NOTICE_WINDOW_MS ? state.recentNotice.reason : "");
+                markCut(state, "");
             }
         }
 
@@ -1681,6 +1722,7 @@ const BetterDeltaBar = (function () {
         readPenalty: readPenalty,
         reasonText: reasonText,
         invalidates: invalidates,
+        isLapVerdict: isLapVerdict,
         onNotification: onNotification,
         tick: tick,
         attach: attach,

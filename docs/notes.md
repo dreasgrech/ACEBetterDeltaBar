@@ -160,17 +160,41 @@ also has two lap invalidations as penalty types, `PenaltyType_InvalidLap` and
 notice yet, but a notice of the first marks this lap and one of the second the lap that
 follows, from its first frame, with the notice's reason, remembered through the reload.
 
-**The flag is the truth, the notice the reason.** Which penalties also void the lap is the
-game's decision per session, and the notice's type does not say so for the dozen real
-penalty types (Warning to Disqualification), so the widget does not guess from the type: a
-flag rising on a lap driven wholly on the track is an invalidation, and it takes its reason
-from the last notice for our car within 500 ms (the measured gap between a cut's notice and
-its flag is 19 ms), or a notice within 500 ms after the flag fills the reason in. Outside the
-window the tag reads plain INVALID. The window is safe against the pit-speeding case because
-a pit lap's flag is never a cut, and against a warning followed by a real cut because the
-cut's own notice always wins. The harness sends every one of the 21 reasons on each of the
-three invalidating types and every one of the 14 non-invalidating types, and a contract test
-holds both lists to the game's enums.
+**The flag is the truth, and only the game's own verdict is the reason.** The game states
+two facts about a lap's validity and nothing else: `ModelTiming.invalid`, at once, and
+session-penalty notices, each with a car number, a reason and a type, no lap number and no
+clock. The penalty-state model holds real penalties only and stayed empty through every cut
+measured; the engine's log says nothing. So the widget uses no timing at all. A flag rising
+on a lap driven wholly on the track is an invalidation, and its reason comes from a notice
+for our car on the same lap that the game's own words tie to the lap: a type that is an
+invalidation (LAP_INVALIDATED in practice, InvalidLap, InvalidNextLap), the type NO GAIN (the
+verdict on a cut, "no time gained"), or any type whose reason is Racecar_Cut (a cut that
+gained time draws a time penalty; the lap is void either way, and the game kept a faster cut
+lap off `best` on 2026-09-23). Order and delay do not matter: in practice the cut's notice
+comes 19 to 48 ms before the flag; in a race there is no LAP_INVALIDATED at all and the NO
+GAIN verdict came 4.4, 4.8 and 9.8 s after the flag on three cuts at Road Atlanta
+(2026-09-23), while a cut followed by a stop on the track never got its verdict. A collision,
+an unsafe rejoin, a warning or pit-lane speeding is tied to the lap by nothing the game
+sends, so the tag stays plain INVALID, which is what the game said. "The same lap" is
+structural: a new lap forgets the cut, so a verdict that arrives after the line is dropped
+and logged, never pinned on the lap that follows. A verdict on a lap whose flag was not a
+cut's, the pit exit's on an out-lap or one up since the lap began, marks the cut: the game
+says the lap had one, and INVALID with its reason replaces the quiet OUTLAP (Road Atlanta
+2026-09-23 01:18:24, a NO GAIN a minute after the pit exit; the first version dropped it as
+"no flag up" because the flag had been booked to the pit lap, and the driver saw OUTLAP with
+no word of the cut). The first version had a 500 ms window
+either side of the flag, tuned on practice, and a race cut then read plain INVALID for the
+whole lap; that window is gone. Every notice's values are logged whole, so the record shows
+everything the game sent. The harness sends every one of the 21 reasons on each of the three
+invalidating types and every one of the 14 non-invalidating types, replays the race verdict
+and the dropped late one, and a contract test holds both lists to the game's enums.
+
+**Whose notice it is.** The "#N" in the notice is matched against the focused car's number,
+read from `ModelCarsOnTrack` first (the track map keeps it fresh every frame) and the two
+leaderboard models after. The leaderboards are not safe alone: the stock UI fetches a model
+from the engine only while one of its widgets has enabled it (`ksUI.Models.enable`), and with
+the leaderboard widget hidden both leaderboard globals sat frozen through a whole race,
+holding lines from an earlier attempt.
 
 **Two labels on game fields the game does not explain.** `delta_time_drivername` has been
 empty in every session measured; the stock bar shows it above its bar when it is not, and so
