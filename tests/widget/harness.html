@@ -881,10 +881,9 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.predicted_lap_time_ms = -1; timing.best = ""; frame();
     });
 
-    t("with no panel behind it, every figure and label keeps a shadow, the placeholder included", function () {
-        set("background", "none"); setDelta(null); frame();
-        ok(has(root, "bd-noref"), "the placeholder is showing");
-        ok(getComputedStyle(q(".bd-delta")).textShadow !== "none", "the placeholder has a shadow against the scene");
+    t("with no panel behind it, every figure and label keeps a shadow", function () {
+        set("background", "none"); setDelta(-235); frame();
+        ok(getComputedStyle(q(".bd-delta")).textShadow !== "none", "the figure has a shadow against the scene");
         set("layout", "compact"); set("numberColour", "overall"); frame();
         ok(getComputedStyle(q(".bd-delta")).textShadow !== "none", "in the compact layout under the overall-colour option too");
         ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
@@ -1274,6 +1273,29 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             pane.remove();
             ACEUIAppLoader.settings.reset(me.name); frame();
         }
+    });
+
+    t("no reference lap: the figure and its chevrons are never shown, in either layout and under every option; the first delta shows them", function () {
+        const shown = function () { return getComputedStyle(figure).visibility === "visible" && getComputedStyle(q(".bd-arrow-l")).visibility === "visible" && getComputedStyle(q(".bd-arrow-r")).visibility === "visible"; };
+        const hidden = function () { return ["bd-delta", "bd-arrow-l", "bd-arrow-r"].every(function (c) { return getComputedStyle(q("." + c)).visibility === "hidden"; }); };
+        // the panel keeps the root hidden until it is positioned, which would hide everything in it: judge the figure's own rule
+        const rootVisibility = root.style.visibility;
+        root.style.visibility = "";
+        const looks = [["layout", "full"], ["layout", "compact"], ["numberColour", "overall"], ["numberColour", "white"], ["background", "none"], ["background", "light"], ["showArrows", false]];
+        looks.forEach(function (look) {
+            ACEUIAppLoader.settings.reset(me.name); set(look[0], look[1]);
+            setDelta(null); frame();
+            ok(has(root, "bd-noref") && hidden(), look[0] + " " + look[1] + ": nothing where the figure goes with no reference");
+            const box = figure.getBoundingClientRect();
+            ok(box.width > 0, look[0] + " " + look[1] + ": hidden, not removed: the row keeps its place");
+        });
+        ACEUIAppLoader.settings.reset(me.name);
+        setDelta(null); frame(); ok(hidden(), "hidden before the first delta");
+        setDelta(-235); frame(); ok(!has(root, "bd-noref") && shown(), "the first delta shows the figure and its chevrons");
+        eq(figure.textContent, "-0.235");
+        setDelta(null); frame(); ok(hidden(), "and the reference going away hides them again");
+        setDelta(-235); frame();
+        root.style.visibility = rootVisibility;
     });
 
     t("the figure's point is on the bar's centre mark and its tag hugs the digits: the tag and chevrons lean by the glyphs either side of the point", function () {

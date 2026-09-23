@@ -484,13 +484,11 @@ body.hide-hud .ace-betterdeltabar {
     color: #ff1418;
 }
 
-/* no reference lap: a dim placeholder whatever the colour rule. It keeps the figure's own
-   shadow: taking it away left the placeholder as the one text with none, which with the
-   panel's background off is what the widget shows against the scene at the start of every
-   session (layout review, 2026-09-23) */
-.ace-betterdeltabar.bd-noref .bd-delta,
-.ace-betterdeltabar.bd-num-overall.bd-noref .bd-delta {
-    color: rgba(255, 255, 255, 0.4);
+/* no reference lap: no figure and no chevrons, whatever the options. A placeholder there read as a
+   number, and the top line already says there is no reference yet (the user, 2026-09-23). Hidden,
+   not taken out, so the bar and the row around it do not move when the first delta arrives. */
+.ace-betterdeltabar.bd-noref .bd-group {
+    visibility: hidden;
 }
 
 /* chevrons: border triangles, faded out unless the trend points their way. They point the

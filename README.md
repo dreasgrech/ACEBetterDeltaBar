@@ -93,7 +93,7 @@ app drawer with its own switch and an **OPTIONS** button.
 | **PIT LANE**, **OUTLAP** | The same tag, quiet and grey, on a lap that does not count with nothing wrong: PIT LANE while you are in the pit lane, OUTLAP for the rest of a lap you spent any of in it. Cut the track on that lap and the tag turns red with the reason as soon as the game rules on it. On some tracks the timing line lies inside the pit lane, so the lap the game flags at the pit exit is the one after the line; it reads OUTLAP too. Speeding out of the pits gets you the game's warning and nothing else: it does not invalidate a lap. |
 | **vs Name** | Appears whenever the game names a driver for its delta, as its own bar does above itself. In practice against your own lap it never does; expect it where the game compares you to a rival. |
 
-With no reference lap yet the number is a dim placeholder and a line above the bar counts the
+With no reference lap yet there is no number under or on the bar, and a line above the bar counts the
 lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. That line
 has its own band above the bar, so the bar never moves when it appears. If you would
 rather see nothing until there is a delta, switch on *Hide until a reference lap*. The
