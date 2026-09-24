@@ -8,8 +8,9 @@
 
 </div>
 
+
 <p align="center">
-<img width="1212" height="258" alt="delta3_H_nat_50_96" src="https://github.com/user-attachments/assets/0881b8be-0a9a-4bfc-9377-6a47393c886d" />
+<img width="1098" height="94" alt="compact_A_nat_50_96" src="https://github.com/user-attachments/assets/8e760704-70a7-414d-bc93-24cf0f78bc19" />
 </p>
 
 
@@ -17,7 +18,9 @@ The bar shows where your lap stands against the reference. The number's colour s
 
 Under the bar sit your session optimal, session best and predicted lap. The compact layout is a thin bar with the number in a tag that follows the end of the fill. The full layout can add a trace of the delta across the lap. Drag it anywhere on the HUD and it stays there.
 
-<p align="center"><img width="560" alt="The compact layout: a thin bar with the number in a tag under it" src="docs/images/widget-compact.png" /></p>
+<p align="center">
+<img width="1212" height="258" alt="delta3_H_nat_50_96" src="https://github.com/user-attachments/assets/0881b8be-0a9a-4bfc-9377-6a47393c886d" />
+</p>
 
 ---
 
