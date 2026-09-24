@@ -83,6 +83,16 @@ In the car, move your mouse to the right edge of the screen. The delta bar is li
 
 With no reference lap yet, a line above the bar counts the lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. The reference is the game's own, so it changes when the stock bar's does.
 
+<p align="center">
+<img width="1176" height="126" alt="image" src="https://github.com/user-attachments/assets/28c8e8cd-b2c1-41d5-bd29-d8112531b59d" />
+</p>
+
+<p align="center">
+<img width="1296" height="283" alt="image" src="https://github.com/user-attachments/assets/5b1da4e5-c620-4dfd-9c19-8128ba14b724" />
+</p>
+
+
+
 ---
 
 ## Options
