@@ -21,7 +21,8 @@
  *
  * Classes the script writes (see betterdeltabar.js), all on the root unless said:
  *   per frame     .bd-gain / .bd-lose / .bd-flat (the trend), .bd-strong (a fast trend),
- *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
+ *                 .bd-faster / .bd-slower (the overall sign), .bd-zero (the figure reads zero),
+ *                 .bd-noref (no reference lap),
  *                 .bd-invalid, .bd-pit, .bd-hasdriver, .bd-top-on (the top line has something to say);
  *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
  *   on a new figure  one of .bd-lean-n7 ... .bd-lean-4 (how far the point sits from the middle of
@@ -502,6 +503,12 @@ body.hide-hud .ace-betterdeltabar {
 
 .ace-betterdeltabar.bd-num-overall.bd-slower .bd-delta {
     color: #ff1418;
+}
+
+/* a figure that reads zero (0.00 while the delta is a few ms off it) takes neither sign's colour; the fill
+   still runs smoothly into the centre line. Same specificity as the two above, later, so it wins */
+.ace-betterdeltabar.bd-num-overall.bd-zero .bd-delta {
+    color: rgba(255, 255, 255, 0.92);
 }
 
 /* no reference lap: no figure and no chevrons, whatever the options. A placeholder there read as a

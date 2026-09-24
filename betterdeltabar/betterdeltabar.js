@@ -89,8 +89,11 @@ const BetterDeltaBar = (function () {
     const LOG_EVERY_MS = 60000;
     /** Fields that could move every frame are logged on change, but no more often than this, or the game log takes a line a frame. */
     const CHANGE_LOG_MS = 1000;
-    /** Decimals kept when writing transforms; more only churns strings. */
-    const SCALE_DECIMALS = 3;
+    /**
+     * Decimals kept when writing a scale: a ten-thousandth of the half bar, a fraction of a pixel. A thousandth
+     * was 5 ms of delta at a 5 s range, and the fill then moved on a quarter of the frames the delta did.
+     */
+    const SCALE_DECIMALS = 4;
     const SHIFT_DECIMALS = 2;
     const LAYOUT_DECIMALS = 4;
     const PERCENT = 100;
@@ -345,6 +348,24 @@ const BetterDeltaBar = (function () {
     const TRACE_WRAP_SLOTS = TRACE_N / 2;
     /** A slow frame skips a slot or two, which are filled in; a longer gap (a delta outage, a hidden HUD) had no data and stays blank. */
     const TRACE_BACKFILL_MAX = 3;
+    /**
+     * The trace so far is kept in the library's local store (persist.writeLocal: it survives Escape/resume, which reloads the HUD
+     * page and loses everything the page held), written each time the car reaches a new slot, a
+     * little under once a second, and put back on the first frame after a reload when that frame
+     * is on the same lap of the same car in the same session. The slots passed during the reload
+     * had no data and stay blank.
+     */
+    const TRACE_STORE_KEY = "acebetterdeltabar.trace";
+    /** The scripted lap's slots are drawn from the middle of each slot's stretch of the lap. */
+    const TRACE_SLOT_MIDDLE = 0.5;
+    /**
+     * Attract mode lasts a game session at most: the option is kept like every other, but it is
+     * only honoured at attach while this flag, in the library's local store (which the game
+     * clears when it closes), says the demo was switched on in this session. Left on at a
+     * restart, it would put scripted laps on a real HUD; through Escape/resume it stays on, so a
+     * recording can go on across a pause.
+     */
+    const ATTRACT_SESSION_KEY = "acebetterdeltabar.attract";
     /** The predicted lap's colour: quicker or slower than the best by this much to colour, half of it to keep the colour (a prediction hovering at the best must not flicker). */
     const PRED_BAND_MS = 20;
     const PRED_FASTER = -1;
@@ -438,6 +459,7 @@ const BetterDeltaBar = (function () {
         strong: "bd-strong",
         faster: "bd-faster",
         slower: "bd-slower",
+        zero: "bd-zero",
         noRef: "bd-noref",
         invalid: "bd-invalid",
         /** On the root: the quiet tag (PIT LANE / OUTLAP) is up. */
@@ -767,6 +789,16 @@ const BetterDeltaBar = (function () {
     };
 
     /** An empty trend ring. */
+    /** The trace's values: one per slot, none written yet. */
+    const emptyTrace = function () {
+        const values = [];
+        let i;
+
+        for (i = 0; i < TRACE_N; i += 1) { values.push(null); }
+
+        return values;
+    };
+
     const emptyRing = function () {
         const samples = [];
         let i;
@@ -843,6 +875,7 @@ const BetterDeltaBar = (function () {
             lastUps: [],
             lastDowns: [],
             sign: 0,                    // the overall sign last put on the root: -1 faster, 0 none, 1 slower
+            zero: false,                // the figure read zero last frame (CLASS.zero on the root)
             hasRef: null,               // whether a delta was there last frame (null: never rendered)
             invalid: null,
             pit: null,
@@ -850,6 +883,7 @@ const BetterDeltaBar = (function () {
             topOn: null,
             predState: 0,               // -1 faster than best, 0 unknown, 1 slower
             traceSlot: -1,              // the last slot written this lap
+            traceValues: emptyTrace(),  // the delta each slot was written with this lap, null where none was
             started: false,             // a frame with a car has run: the first one restores the lap's record and takes the flag as found
             lapMs: null,                // the last lap time seen; it going backwards is a new lap
             lapCount: null,             // the car's lap count last seen, the lap's identity for a remembered cut
@@ -1003,6 +1037,13 @@ const BetterDeltaBar = (function () {
         }
 
         state.attract = Boolean(on);
+
+        if (state.attract) {
+            ACEUIAppLoader.persist.writeLocal(ATTRACT_SESSION_KEY, true);
+        } else {
+            ACEUIAppLoader.persist.removeLocal(ATTRACT_SESSION_KEY);
+        }
+
         settings.set(me.name, SETTING.attract, state.attract);
         log("attract " + (state.attract ? "on" : "off"));
 
@@ -1286,26 +1327,92 @@ const BetterDeltaBar = (function () {
     };
 
     /**
-     * Attract mode: a scripted lap for previews and recordings. A short lap so the trace
-     * fills quickly; the delta swings both ways so every colour shows: gaining down the
-     * straights, losing through three corners, a net gain by the line.
+     * Attract mode: scripted driving for previews and recordings, made to read like a real
+     * session, and worked out the way a real delta is. Every lap is driven corner by corner on
+     * a twelve-corner track (about 1:43, a Road Atlanta lap): each braking zone, each corner and
+     * each straight after it takes the time it takes that lap, a little more or less than the
+     * last, and on most laps one corner goes wrong (a lock-up, a slide). The best lap so far is
+     * the reference, and the delta is this lap's time through each part of the track minus the
+     * reference's through the same part. So it moves where real deltas move, in the braking
+     * zones and the corners, and hardly on the straights; it swings hard the other way where the
+     * reference lap had its own moment; and the best improves when a lap beats it, and less and
+     * less often. The session optimal is the best of each sector added up. Every lap is
+     * different and every lap is the same each time it is played: each comes from its number
+     * through a hash.
      */
-    const ATTRACT_LAP_S = 40;
-    const ATTRACT_BEST_MS = 103445;
-    const ATTRACT_BEST_TEXT = "1:43.445";
-    const ATTRACT_OPTIMAL_TEXT = "1:43.102";
-    const ATTRACT_LAST_TEXT = "1:43.987";
-    /** Corners in the scripted lap: where (share of the lap), how long, and the time each costs (ms). */
+    /** The time of a lap driven with no part lost anywhere, ms: the laps are this plus what each part loses. */
+    /** The best lap the demo starts against, ms (1:43.445): the laps are set around it at every bar range. */
+    const ATTRACT_REFERENCE_TARGET_MS = 103445;
+    /**
+     * The script drives to the bar it is shown on: every gain and loss is sized for the default
+     * range and stretched by the range set, the lap times shown with them, so a recording at a
+     * 5 s range swings as far across its bar as one at 1 s (at 5 s the laps are those of a driver
+     * five times less consistent). The laps are planned once: a change of range mid-demo only
+     * stretches what is shown, it does not jump to another lap.
+     */
+    const ATTRACT_SCALE_RANGE_MS = RANGES[RANGE_DEFAULT];
+    /** The laps shown as last before a lap of the demo is done, ms. */
+    const ATTRACT_LAST_BEFORE_MS = 103987;
+    /**
+     * The corners, as shares of the lap: where the braking starts, and how strongly this corner
+     * decides a lap time (a heavy stop weighs more than a kink), and the sector it is in.
+     */
     const ATTRACT_CORNERS = [
-        { at: 0.18, width: 0.08, cost: 420 },
-        { at: 0.52, width: 0.06, cost: 260 },
-        { at: 0.8, width: 0.1, cost: 380 }
+        { at: 0.055, weight: 1.3, sector: 0 }, { at: 0.12, weight: 0.7, sector: 0 }, { at: 0.165, weight: 0.6, sector: 0 },
+        { at: 0.215, weight: 0.9, sector: 0 }, { at: 0.3, weight: 1.1, sector: 1 }, { at: 0.395, weight: 0.8, sector: 1 },
+        { at: 0.49, weight: 1.2, sector: 1 }, { at: 0.575, weight: 0.5, sector: 1 }, { at: 0.635, weight: 0.5, sector: 2 },
+        { at: 0.845, weight: 1.4, sector: 2 }, { at: 0.885, weight: 0.7, sector: 2 }, { at: 0.955, weight: 0.9, sector: 2 }
     ];
-    /** Time gained per lap on the straights, ms, spread evenly. */
-    const ATTRACT_GAIN_MS = 1250;
-    /** A little ripple on the scripted delta, so the trend is never perfectly flat for long: its size and how many waves a lap. */
-    const ATTRACT_RIPPLE_MS = 25;
-    const ATTRACT_RIPPLE_CYCLES = 9;
+    const ATTRACT_SECTORS = 3;
+    /** How long a braking zone lasts, and the corner after it, as shares of the lap (about 1.5 s and 2 s). */
+    const ATTRACT_BRAKE_SHARE = 0.015;
+    const ATTRACT_CORNER_SHARE = 0.02;
+    /**
+     * What each part loses on a lap, ms, before the corner's weight: a share of its spread, more
+     * or less from lap to lap (braking a metre later or earlier, a wider line, the speed carried
+     * down the straight). The braking zone varies the most, the straight the least.
+     */
+    const ATTRACT_BRAKE_SPREAD_MS = 80;
+    const ATTRACT_CORNER_SPREAD_MS = 55;
+    const ATTRACT_STRAIGHT_SPREAD_MS = 20;
+    /** The chance a lap has a corner gone wrong, and what it costs then, ms (not weighted: a slide is a slide). */
+    const ATTRACT_MOMENT_CHANCE = 0.8;
+    const ATTRACT_MOMENT_MIN_MS = 150;
+    const ATTRACT_MOMENT_MAX_MS = 650;
+    /** The share of a corner gone wrong that is lost on the brakes; the rest goes in the corner itself. */
+    const ATTRACT_MOMENT_BRAKE_SHARE = 0.45;
+    /**
+     * The best lap the demo starts against, as if driven before it began: which corner went
+     * wrong on it and by how much. Its moment is where the first laps gain big.
+     */
+    const ATTRACT_REFERENCE_LAP = -1;
+    const ATTRACT_REFERENCE_MOMENT_CORNER = 6;
+    const ATTRACT_REFERENCE_MOMENT_MS = 450;
+    /** The parts of a corner: braking, the corner itself, the straight after it. */
+    const ATTRACT_PARTS_PER_CORNER = 3;
+    /**
+     * The wander on top of the corners: a real delta is never still, it drifts all the way round
+     * as the line, the braking and the speed carried differ from the reference's a little
+     * everywhere. Made of half-waves across the lap (whole numbers of them, so it is 0 at both
+     * lines and changes no lap time), the slow ones large (the big swings of a lap), the quick
+     * ones small; each its most in ms at the default range, drawn per lap between plus and minus.
+     */
+    const ATTRACT_WANDER_MS = [300, 220, 160, 90, 70, 55, 30, 24, 18, 14, 11, 9];
+    /** The draws of a lap: one per part, then the waver's two, then the moment's: whether, where and how much. */
+    const ATTRACT_WANDER_DRAW = ATTRACT_CORNERS.length * ATTRACT_PARTS_PER_CORNER;
+    const ATTRACT_MOMENT_DRAW = ATTRACT_WANDER_DRAW + ATTRACT_WANDER_MS.length;
+    /** A spread is the sum of two draws, each from its own slot. */
+    const DRAWS_PER_SPREAD = 2;
+    /** An integer hash (the multipliers of the murmur3 finaliser and the golden ratio), to a share in [0, 1). */
+    const HASH_GOLDEN = 0x9E3779B1;
+    const HASH_MIX_A = 0x85EBCA77;
+    const HASH_MIX_B = 0x2C1B3C6D;
+    const HASH_MIX_C = 0x297A2D39;
+    const HASH_SHIFT_A = 15;
+    const HASH_SHIFT_B = 12;
+    const HASH_RANGE = 4294967296;
+    /** The hash takes a lap number of zero or more: the lap before the demo is hashed under this one. */
+    const HASH_REFERENCE_LAP = 999983;
     const TWO_PI = 2 * Math.PI;
     /** The classic smoothstep polynomial, 3k^2 - 2k^3. */
     const SMOOTHSTEP_SQUARE = 3;
@@ -1318,27 +1425,178 @@ const BetterDeltaBar = (function () {
         return k * k * (SMOOTHSTEP_SQUARE - SMOOTHSTEP_CUBE * k);
     };
 
-    /** The scripted delta at lap share `phase` (0..1): a continuous function, no state. */
-    const attractDelta = function (phase) {
-        let delta = -ATTRACT_GAIN_MS * phase;
+    /** Draw number `n` of lap `lap`, a share in [0, 1): the same every time it is asked for. */
+    const attractDraw = function (lap, n) {
+        const seed = lap === ATTRACT_REFERENCE_LAP ? HASH_REFERENCE_LAP : lap;
+        let h = Math.imul(seed + 1, HASH_GOLDEN) ^ Math.imul(n + 1, HASH_MIX_A);
 
-        ATTRACT_CORNERS.forEach(function (corner) {
-            delta += corner.cost * smoothStep(phase, corner.at, corner.at + corner.width);
-        });
+        h = Math.imul(h ^ (h >>> HASH_SHIFT_A), HASH_MIX_B);
+        h = Math.imul(h ^ (h >>> HASH_SHIFT_B), HASH_MIX_C);
 
-        return delta + ATTRACT_RIPPLE_MS * Math.sin(phase * TWO_PI * ATTRACT_RIPPLE_CYCLES);
+        return ((h ^ (h >>> HASH_SHIFT_A)) >>> 0) / HASH_RANGE;
     };
 
-    const attractValues = function (now) {
-        const lapS = (now / MS_PER_S) % ATTRACT_LAP_S;
-        const phase = lapS / ATTRACT_LAP_S;
-        const delta = Math.round(attractDelta(phase));
+    /** Draw `n` as a share in [0, 1). */
+    const attractShare = function (lap, n) {
+        return attractDraw(lap, n * DRAWS_PER_SPREAD);
+    };
+
+    /** Draw `n` as a share in [0, 1), commoner near the middle (the mean of two, as small variations are). */
+    const attractMiddling = function (lap, n) {
+        return (attractDraw(lap, n * DRAWS_PER_SPREAD) + attractDraw(lap, n * DRAWS_PER_SPREAD + 1)) / DRAWS_PER_SPREAD;
+    };
+
+    /**
+     * What lap `n` loses in each part of the track, ms, in track order (braking, corner, straight
+     * for each corner in turn), and where each part starts and ends as shares of the lap.
+     */
+    const attractParts = function (n) {
+        const parts = [];
+        const hasMoment = n === ATTRACT_REFERENCE_LAP || attractShare(n, ATTRACT_MOMENT_DRAW) < ATTRACT_MOMENT_CHANCE;
+        const momentCorner = n === ATTRACT_REFERENCE_LAP ? ATTRACT_REFERENCE_MOMENT_CORNER
+            : Math.floor(attractShare(n, ATTRACT_MOMENT_DRAW + 1) * ATTRACT_CORNERS.length);
+        const momentMs = n === ATTRACT_REFERENCE_LAP ? ATTRACT_REFERENCE_MOMENT_MS
+            : ATTRACT_MOMENT_MIN_MS + (ATTRACT_MOMENT_MAX_MS - ATTRACT_MOMENT_MIN_MS) * attractShare(n, ATTRACT_MOMENT_DRAW + 2);
+
+        ATTRACT_CORNERS.forEach(function (corner, c) {
+            const base = c * ATTRACT_PARTS_PER_CORNER;
+            const next = c + 1 < ATTRACT_CORNERS.length ? ATTRACT_CORNERS[c + 1].at : 1;
+            const brakeEnd = corner.at + ATTRACT_BRAKE_SHARE;
+            const cornerEnd = brakeEnd + ATTRACT_CORNER_SHARE;
+            // one draw for the whole corner: the braking, the corner and the straight after it go the same way, as a
+            // corner is taken well or badly as a whole. Drawn apart, a gain on the brakes and a loss in the corner a
+            // second later flicked the bar there and back, which reads as a spring (2026-09-24)
+            const how = attractMiddling(n, base);
+            const lose = function (spread) { return corner.weight * spread * how; };
+            // a corner gone wrong is felt over the braking and the corner: a tenth of a second and more a second
+            const moment = hasMoment && c === momentCorner ? momentMs : 0;
+
+            parts.push({ from: corner.at, to: brakeEnd, ms: lose(ATTRACT_BRAKE_SPREAD_MS) + moment * ATTRACT_MOMENT_BRAKE_SHARE, sector: corner.sector });
+            parts.push({ from: brakeEnd, to: cornerEnd, ms: lose(ATTRACT_CORNER_SPREAD_MS) + moment * (1 - ATTRACT_MOMENT_BRAKE_SHARE), sector: corner.sector });
+            parts.push({ from: cornerEnd, to: Math.max(cornerEnd, next), ms: lose(ATTRACT_STRAIGHT_SPREAD_MS), sector: corner.sector });
+        });
+
+        return parts;
+    };
+
+    /** A lap's time from its parts, and its sector times. */
+    const attractTime = function (parts) {
+        let total = 0;
+
+        parts.forEach(function (p) { total += p.ms; });
+
+        return Math.round(attractIdeal + total);
+    };
+
+    const attractSectors = function (parts) {
+        const sectors = [];
+        let i;
+
+        for (i = 0; i < ATTRACT_SECTORS; i += 1) { sectors.push(attractIdeal / ATTRACT_SECTORS); }
+
+        parts.forEach(function (p) { sectors[p.sector] += p.ms; });
+
+        return sectors;
+    };
+
+    /**
+     * Lap `k` of the script: what it loses where (its events, against the reference: this lap's
+     * part minus the reference lap's), the reference's time, its own time, its start on the
+     * demo's clock, the last lap and the optimal shown while it runs. Worked out once per lap, in
+     * order, since each lap's reference and start follow from the laps before it.
+     */
+    const attractLaps = [];
+    /** The best lap before the demo began. */
+    let attractBefore = null;
+    /** The time of a lap with no part lost anywhere: set so the best lap the demo starts against is ATTRACT_REFERENCE_TARGET_MS. */
+    let attractIdeal = 0;
+    /** The lap the last frame was on: the next is looked for from there, not from the first lap every frame. */
+    let attractCursor = 0;
+
+    /** The lap before the demo, and with it the time of a lap with nothing lost: worked out once, on first use. */
+    const attractPlan = function () {
+        attractBefore = { parts: attractParts(ATTRACT_REFERENCE_LAP) };
+        attractIdeal = 0;
+        attractIdeal = ATTRACT_REFERENCE_TARGET_MS - attractTime(attractBefore.parts);
+        attractBefore.time = attractTime(attractBefore.parts);
+        attractBefore.sectors = attractSectors(attractBefore.parts);
+    };
+
+    const attractLap = function (k) {
+        if (!attractBefore) { attractPlan(); }
+
+        while (attractLaps.length <= k) {
+            const n = attractLaps.length;
+            const before = n > 0 ? attractLaps[n - 1] : null;
+            // the best lap so far is the reference; its parts are what this lap is measured against
+            const reference = !before ? attractBefore : (before.own.time < before.reference.time ? before.own : before.reference);
+            const bestSectors = before ? before.bestSectors : attractBefore.sectors;
+            const parts = attractParts(n);
+            const own = { parts: parts, time: attractTime(parts), sectors: attractSectors(parts) };
+            const events = parts.map(function (p, i) { return { from: p.from, to: p.to, ms: p.ms - reference.parts[i].ms }; });
+            let optimal = 0;
+
+            bestSectors.forEach(function (ms) { optimal += ms; });
+
+            attractLaps.push({
+                own: own,
+                reference: reference,
+                events: events,
+                time: own.time,
+                referenceMs: reference.time,
+                start: before ? before.start + before.time : 0,
+                last: before ? before.time : ATTRACT_LAST_BEFORE_MS,
+                optimal: Math.round(optimal),
+                // the best of each sector once this lap is done, for the laps after it
+                bestSectors: bestSectors.map(function (ms, i) { return Math.min(ms, own.sectors[i]); }),
+                wander: ATTRACT_WANDER_MS.map(function (ms, i) { return ms * (DRAWS_PER_SPREAD * attractShare(n, ATTRACT_WANDER_DRAW + i) - 1); })
+            });
+        }
+
+        return attractLaps[k];
+    };
+
+    /**
+     * The scripted delta on lap `lap` at lap share `phase` (0..1), stretched by `scale` (1 when not
+     * given): 0 at the line, the lap's whole gain or loss by the next.
+     */
+    const attractDelta = function (lap, phase, scale) {
+        const stretch = typeof scale === "number" ? scale : 1;
+        let delta = 0;
+
+        // half-wave i + 1 of the wander: sin(pi (i + 1) phase), 0 at both lines
+        lap.wander.forEach(function (ms, i) { delta += ms * Math.sin(phase * Math.PI * (i + 1)); });
+        lap.events.forEach(function (e) { delta += e.ms * smoothStep(phase, e.from, e.to); });
+        // (a quick flutter of a few ms was tried on top: on a 0.5 s bar it rocked the fill back and forth twice a
+        // second, which reads as a spring, 2026-09-24; the delta moves only as a car's does)
+        return delta * stretch;
+    };
+
+    /** The scripted values at `now`, driven for a bar of `rangeMs` (the default range when not given). */
+    const attractValues = function (now, rangeMs) {
+        const scale = typeof rangeMs === "number" && rangeMs > 0 ? rangeMs / ATTRACT_SCALE_RANGE_MS : 1;
+        // a lap time as shown at this range: its difference from the demo's best stretched like the delta
+        const shown = function (ms) { return Math.round(ATTRACT_REFERENCE_TARGET_MS + scale * (ms - ATTRACT_REFERENCE_TARGET_MS)); };
+        const clock = Math.max(0, now);
+        let k = clock >= attractLap(attractCursor).start ? attractCursor : 0;
+
+        while (attractLap(k).start + attractLap(k).time <= clock) { k += 1; }
+
+        attractCursor = k;
+
+        const lap = attractLap(k);
+        const lapMs = Math.round(clock - lap.start);
+        const phase = lapMs / lap.time;
+        // not rounded to whole ms: the game's own delta comes in ms, but a scripted one moving a few ms a second
+        // would creep across a short bar in visible steps; the figure rounds it as it rounds the game's
+        const delta = attractDelta(lap, phase, scale);
+        const best = shown(lap.referenceMs);
 
         return {
             delta: delta,
-            predicted: ATTRACT_BEST_MS + Math.round(attractDelta(1) * phase + delta * (1 - phase)),
-            lapMs: Math.round(lapS * MS_PER_S),
-            lapCount: Math.floor(now / (ATTRACT_LAP_S * MS_PER_S)),
+            predicted: best + delta,
+            lapMs: lapMs,
+            lapCount: k,
             npos: phase,
             cutGained: null,
             cutDeadline: null,
@@ -1346,10 +1604,10 @@ const BetterDeltaBar = (function () {
             carId: "",
             sessionKey: "",
             driver: "",
-            current: formatLap(lapS * MS_PER_S),
-            best: ATTRACT_BEST_TEXT,
-            optimal: ATTRACT_OPTIMAL_TEXT,
-            last: ATTRACT_LAST_TEXT,
+            current: formatLap(lapMs),
+            best: formatLap(best),
+            optimal: formatLap(shown(lap.optimal)),
+            last: formatLap(shown(lap.last)),
             invalid: false,
             rawInvalid: false
         };
@@ -1452,10 +1710,15 @@ const BetterDeltaBar = (function () {
      */
     const renderDelta = function (state, delta) {
         const hasRef = delta !== null;
-        // the delta as shown: fill, tick and sign agree with the figure to the last digit
+        // The fill, its side and its colour are the delta itself, every frame, so it runs smoothly into the centre
+        // line and out the other side. Drawn from the figure as rounded, it moved in steps of the last digit shown
+        // (10 ms at two decimals, a jump every few frames on a short bar range: a recording from the game,
+        // 2026-09-24) and snapped to the centre as the figure reached 0.00. Only the figure's own colour goes by
+        // what it reads: a figure reading 0.00 takes neither sign's colour (CLASS.zero)
         const shown = hasRef ? roundDelta(delta, state.decimals) : 0;
-        const share = hasRef ? shareOf(state, shown) : 0;
-        const sign = hasRef && shown !== 0 ? (shown < 0 ? -1 : 1) : 0;
+        const share = hasRef ? shareOf(state, delta) : 0;
+        const sign = hasRef && delta !== 0 ? (delta < 0 ? -1 : 1) : 0;
+        const zero = hasRef && shown === 0;
         // the fill on the right when the delta is on the side the right stands for
         const onRight = sign !== 0 && (sign < 0) === state.fasterRight;
         const signedShare = onRight ? share : -share;
@@ -1479,6 +1742,11 @@ const BetterDeltaBar = (function () {
             setClass(state.root, CLASS.slower, sign > 0);
         }
 
+        if (zero !== state.zero) {
+            state.zero = zero;
+            setClass(state.root, CLASS.zero, zero);
+        }
+
         if (hasRef !== state.hasRef) {
             state.hasRef = hasRef;
             setClass(state.root, CLASS.noRef, !hasRef);
@@ -1497,6 +1765,8 @@ const BetterDeltaBar = (function () {
                 state.lastDowns[i] = HIDDEN_Y;
                 state.downs[i].style.transform = HIDDEN_Y;
             }
+
+            state.traceValues[i] = null;
         });
         state.traceSlot = -1;
     };
@@ -1504,6 +1774,8 @@ const BetterDeltaBar = (function () {
     /** Write one slot of the trace: up for time gained, down for time lost. */
     const writeSlot = function (state, slot, delta) {
         const share = shareOf(state, delta);
+
+        state.traceValues[slot] = delta;
         const up = scaleYTransform(delta < 0 ? share : 0);
         const down = scaleYTransform(delta > 0 ? share : 0);
 
@@ -1516,6 +1788,37 @@ const BetterDeltaBar = (function () {
             state.lastDowns[slot] = down;
             state.downs[slot].style.transform = down;
         }
+    };
+
+    /** Keep the trace so far, with the lap it belongs to (see TRACE_STORE_KEY). */
+    const saveTrace = function (state, slot) {
+        ACEUIAppLoader.persist.writeLocal(TRACE_STORE_KEY, {
+            car: state.carId, sess: state.sessionKey, lap: state.lapCount, at: state.lapMs, slot: slot, values: state.traceValues
+        });
+    };
+
+    /**
+     * After a reload, the trace kept for this lap, drawn again. Only for the same lap: the same
+     * car and session, a lap count to match (none, no restore), and the clock no earlier than the
+     * mark it was kept at (within the clock's own corrections) with the car no further back along
+     * the lap. Anything else is another lap's, and is left to be written over.
+     */
+    const restoreTrace = function (state, m) {
+        if (!state.traceOn || state.attract || m.lapCount === null || m.lapMs === null || m.npos === null) { return; }
+
+        const kept = ACEUIAppLoader.persist.readLocal(TRACE_STORE_KEY);
+
+        if (!kept || typeof kept !== "object" || !Array.isArray(kept.values) || kept.values.length !== TRACE_N) { return; }
+
+        if (kept.lap !== m.lapCount || kept.car !== m.carId || kept.sess !== m.sessionKey || typeof kept.at !== "number" || typeof kept.slot !== "number") { return; }
+
+        if (m.lapMs < kept.at - LAP_CLOCK_JITTER_MS || Math.floor(m.npos * TRACE_N) < kept.slot) { return; }
+
+        kept.values.forEach(function (value, i) {
+            if (typeof value === "number" && isFinite(value)) { writeSlot(state, i, value); }
+        });
+        state.traceSlot = kept.slot;
+        log("the lap trace kept from before the reload is back, to slot " + kept.slot);
     };
 
     /**
@@ -1544,10 +1847,25 @@ const BetterDeltaBar = (function () {
         // say the delta held there, so it stays blank
         if (state.traceSlot >= 0 && slot > state.traceSlot) { from = Math.max(state.traceSlot + 1, slot - TRACE_BACKFILL_MAX); }
 
+        // the scripted lap has its whole past: the stretch driven before attract came on (or before the reload)
+        // is drawn at once from the script, so a recording starts with a trace, not an empty strip
+        if (state.attract && state.traceSlot < 0) {
+            const lap = attractLap(state.lapCount);
+
+            from = 0;
+
+            while (from < slot) {
+                writeSlot(state, from, Math.round(attractDelta(lap, (from + TRACE_SLOT_MIDDLE) / TRACE_N, state.rangeMs / ATTRACT_SCALE_RANGE_MS)));
+                from += 1;
+            }
+        }
+
         while (from <= slot) {
             writeSlot(state, from, delta);
             from += 1;
         }
+
+        if (slot !== state.traceSlot && !state.attract) { saveTrace(state, slot); }
 
         state.traceSlot = slot;
     };
@@ -2040,6 +2358,9 @@ const BetterDeltaBar = (function () {
 
         if (!penalty) { return; }
 
+        // the scripted lap takes no notices: they are about the real car, whose lap is joined afresh when the demo ends
+        if (state.attract) { return; }
+
         // the tuple's values, every one, as the game sent them: the schema says "repeated string" and nothing more
         if (Array.isArray(message.tuples[0].values)) { log("penalty values: " + message.tuples[0].values.map(function (v) { return "\"" + v + "\""; }).join(", ")); }
 
@@ -2118,7 +2439,7 @@ const BetterDeltaBar = (function () {
 
     /** One animation frame: sample the trend, then draw. */
     const tick = function (state, now) {
-        const m = state.attract ? attractValues(now) : readModel();
+        const m = state.attract ? attractValues(now, state.rangeMs) : readModel();
         const shouldLog = now - state.lastLog > LOG_EVERY_MS;
 
         if (!m) {
@@ -2230,6 +2551,7 @@ const BetterDeltaBar = (function () {
             state.lapStartedInvalid = m.rawInvalid;
             state.pitLap = m.inPits === true;
             restoreLap(state, m);
+            restoreTrace(state, m);
             log("first frame: " + timingText(state, m));
         } else if (lapWrapped) {
             // a boundary before the record waiting for its count was settled: the lap that ended is the one
@@ -2430,7 +2752,13 @@ const BetterDeltaBar = (function () {
 
         const state = create(root);
 
-        state.attract = Boolean(options[SETTING.attract]);
+        // the demo carries across Escape/resume, never across a restart (see ATTRACT_SESSION_KEY)
+        state.attract = Boolean(options[SETTING.attract]) && ACEUIAppLoader.persist.readLocal(ATTRACT_SESSION_KEY) === true;
+
+        if (Boolean(options[SETTING.attract]) && !state.attract) {
+            settings.set(me.name, SETTING.attract, false);
+            log("attract mode was left on from an earlier game session: switched off, so the HUD shows the real lap");
+        }
         applyView(state);
         clearTrace(state);
         // the root may carry the markup and classes of an earlier life (the drawer switching the
@@ -2531,6 +2859,7 @@ const BetterDeltaBar = (function () {
         readModel: readModel,
         attractValues: attractValues,
         attractDelta: attractDelta,
+        attractLap: attractLap,
         create: create,
         applyView: applyView,
         setAttract: setAttract,

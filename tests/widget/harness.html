@@ -1162,6 +1162,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(JSON.stringify(me.recall("lap", null)), kept, "three seconds of the scripted lap left the record exactly as it was"); ok(!has(root, "bd-invalid"), "no tag in attract");
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Collision", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         eq(JSON.stringify(me.recall("lap", null)), kept, "a notice during attract writes nothing to the store");
+        eq(state.lapCut, false, "and the scripted lap does not take it: the notice was the real car's");
         eq(B.attract(false), false); car.current_lap_time_ms = 31000; frame();
         ok(has(root, "bd-invalid"), "back to the real lap: the cut is restored from the record"); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "with its own reason, not the attract notice's");
         // the lap clock past the hour (the car sat in the pit lane): the widget attached then still draws
@@ -2002,12 +2003,28 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
-    t("fifth pass 2026-09-23: the sign and the fill follow the figure as shown: with two decimals a delta of -4 ms reads 0.00 with no sign and no fill, and -5 ms rounds away from zero", function () {
-        set("decimals", "2"); setDelta(-4); frame();
-        eq(figure.textContent, "0.00"); ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "no sign on a figure that reads zero"); eq(sx(right), 0); eq(sx(left), 0); eq(tx(tick), 0);
-        setDelta(-5); frame(); eq(figure.textContent, "-0.01"); ok(has(root, "bd-faster")); near(sx(right), 0.01, 1e-6, "the fill is the figure's, not the raw delta's");
-        setDelta(-14); frame(); eq(figure.textContent, "-0.01"); near(sx(right), 0.01, 1e-6);
-        setDelta(4); frame(); eq(figure.textContent, "0.00"); ok(!has(root, "bd-slower")); eq(sx(left), 0);
+    t("fifth pass 2026-09-23, reworked 2026-09-24: the fill is the delta itself, every frame, running smoothly into the centre line and out the other side; only the figure goes by what it reads (with two decimals -4 ms reads 0.00, in no sign's colour)", function () {
+        set("decimals", "2"); set("numberColour", "overall");
+        const colour = function () { return getComputedStyle(figure).color; };
+        setDelta(-4); frame();
+        eq(figure.textContent, "0.00"); ok(has(root, "bd-zero"), "the figure reads zero");
+        eq(colour(), "rgba(255, 255, 255, 0.92)", "and is in neither sign's colour");
+        near(sx(right), 0.004, 1e-6, "while the fill is still there, 4 ms long: it does not snap to the centre"); ok(has(root, "bd-faster"), "in the faster side's colour");
+        setDelta(-5); frame(); eq(figure.textContent, "-0.01"); ok(!has(root, "bd-zero")); eq(colour(), "rgb(68, 234, 120)", "a figure off zero takes its sign's colour");
+        near(sx(right), 0.005, 1e-6);
+        setDelta(-14); frame(); eq(figure.textContent, "-0.01"); near(sx(right), 0.014, 1e-6, "the same figure, a longer fill: it moves with the delta, not in steps of 10 ms");
+        near(tx(tick), 0.7, 1e-6, "and the tick with it");
+        setDelta(0); frame(); eq(sx(right), 0); eq(sx(left), 0); ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "exactly zero: no side at all");
+        setDelta(4); frame(); eq(figure.textContent, "0.00"); ok(has(root, "bd-slower")); near(sx(left), 0.004, 1e-6, "past zero the fill carries on on the other side");
+        // a sweep across the centre a millisecond a frame: the fill changes every frame by a millisecond's share, never jumping
+        let prev = null, worst = 0;
+        for (let d = -20; d <= 20; d += 1) {
+            setDelta(d); frame();
+            const signed = sx(right) > 0 ? sx(right) : -sx(left);
+            if (prev !== null) { worst = Math.max(worst, Math.abs(signed - prev)); ok(signed !== prev || d === 0, "the fill moved at " + d + " ms"); }
+            prev = signed;
+        }
+        ok(worst <= 0.0011, "no step bigger than one millisecond's share: " + worst);
         ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
     });
 
@@ -2340,7 +2357,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             if (has(root, "bd-gain") && (l !== !state.fasterRight || r !== state.fasterRight)) { fault("gain chevron side"); }
             if (has(root, "bd-lose") && (l !== state.fasterRight || r !== !state.fasterRight)) { fault("lose chevron side"); }
             const pred = q(".bd-cell-pred");
-            const gap = v.predicted - 103445, fasterOn = has(pred, "bd-pred-faster"), slowerOn = has(pred, "bd-pred-slower");
+            const gap = v.predicted - B.parseLap(v.best), fasterOn = has(pred, "bd-pred-faster"), slowerOn = has(pred, "bd-pred-slower");
             if ((fasterOn && slowerOn) || (fasterOn && gap >= 0) || (slowerOn && gap <= 0) || (gap <= -B.PRED_BAND_MS && !fasterOn) || (gap >= B.PRED_BAND_MS && !slowerOn)
                 || (Math.abs(gap) < B.PRED_BAND_MS * B.HYSTERESIS && (fasterOn || slowerOn))) { fault("predicted colour (predicted " + v.predicted + ", bestMs " + state.bestMs + ", classes " + pred.className + ", predState " + state.predState + ")"); }
             checked += 1;
@@ -2399,8 +2416,8 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             if ((disp(".bd-arrow-l") === "none") !== !c.showArrows) { fault("arrows shown", c); }
             // gained time: the fill on the faster side, the tick and (compact, following) the figure row with it
             const onRight = c.fasterSide === "right";
-            // the fill and the tick follow the figure as shown: -0.235 with three decimals, -0.24 with two
-            const shown = c.decimals === "2" ? 0.24 : 0.235;
+            // the fill and the tick reach as far as the delta itself (-235 ms), whatever the decimals shown
+            const shown = 0.235;
             if (!(Math.abs(sx(onRight ? right : left) - shown) <= 1e-6) || sx(onRight ? left : right) !== 0) { fault("fill side", c); }
             if (!(Math.abs(tx(tick) - (onRight ? shown * 50 : -shown * 50)) <= 1e-6)) { fault("tick side", c); }
             if (!(Math.abs(tx(main) - (compact && c.followFill ? tx(tick) : 0)) <= 1e-9)) { fault("figure row", c); }
@@ -2492,7 +2509,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("options reach the live widget: decimals, range, colours, width, what is shown", function () {
         setDelta(-235); frame(); eq(figure.textContent, "-0.235");
         set("decimals", "2"); frame(); eq(figure.textContent, "-0.24", "reformatted although the delta did not move");
-        set("range", "2 s"); frame(); near(sx(right), 0.12, 1e-6, "half the fill at twice the range, of the figure as shown (-0.24)");
+        set("range", "2 s"); frame(); near(sx(right), 0.1175, 0.0006, "half the fill at twice the range, of the delta itself (-235 ms; transforms are written to a thousandth)");
         set("numberColour", "overall"); ok(has(root, "bd-num-overall")); set("numberColour", "white"); ok(has(root, "bd-num-white")); ok(!has(root, "bd-num-overall"));
         set("barColour", "trend"); ok(has(root, "bd-bar-trend"));
         set("width", "narrow"); ok(has(root, "bd-narrow")); set("width", "wide"); ok(has(root, "bd-wide")); ok(!has(root, "bd-narrow"));
@@ -2553,14 +2570,135 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         timing.invalid = false; car.current_lap_time_ms = 200; frame();
     });
 
-    t("attract mode scripts a lap: a net gain by the line, a position that sweeps the lap, laps to compare with", function () {
-        const start = B.attractValues(0), mid = B.attractValues(20000), end = B.attractValues(39990);
-        eq(start.npos, 0); near(mid.npos, 0.5, 1e-6); ok(end.npos > 0.99);
-        ok(B.attractDelta(0.27) > B.attractDelta(0.17), "the first corner costs time"); ok(B.attractDelta(1) < 0, "gains over the lap");
-        eq(start.best, "1:43.445"); eq(start.optimal, "1:43.102"); eq(start.last, "1:43.987"); eq(start.invalid, false); eq(typeof end.predicted, "number");
+    t("the lap trace comes back after Escape/resume on the same lap, the stretch passed during the reload blank; another lap's trace is not drawn", function () {
+        const had = state.traceOn;
+        set("showTrace", true); car.low_frequency = { total_lap_count: 4 }; car.current_lap_time_ms = 20; timing.invalid = false; car.npos = 0.01; frame();
+        car.current_lap_time_ms = 30000; car.npos = 0.30; setDelta(-500); frame(); car.npos = 0.31; frame();
+        near(sy(ups[37]), 0.5, 1e-6, "drawn before the reload");
+        B.detach(state); state = B.attach(root);
+        car.current_lap_time_ms = 36000; car.npos = 0.40; setDelta(-400); frame();
+        near(sy(ups[37]), 0.5, 1e-6, "back after the reload"); near(sy(ups[36]), 0.5, 1e-6);
+        eq(sy(ups[41]), 0, "a slot passed while the page reloaded had no data: blank"); near(sy(ups[48]), 0.4, 1e-6, "and the trace goes on from where the car is");
+        B.detach(state); car.low_frequency = { total_lap_count: 5 }; state = B.attach(root); frame();
+        eq(sy(ups[37]), 0, "a trace kept on lap 4 is not drawn on lap 5");
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; car.npos = 0.01; frame(); car.current_lap_time_ms = 200; frame();
+        set("showTrace", had);
+    });
+
+    t("attract mode draws the lap trace it has driven so far at once, from its script, so a recording never starts with an empty strip", function () {
+        const had = state.traceOn;
+        set("showTrace", true);
+        // a moment 30 s into a lap of the script
+        now = B.attractLap(B.attractValues(now).lapCount + 1).start + 30000 - FRAME;
+        B.setAttract(state, true); frame();
+        const v = B.attractValues(now), slot = Math.floor(v.npos * B.TRACE_N);
+        ok(slot > 20, "well into the lap: slot " + slot);
+        eq(state.traceValues.slice(0, slot + 1).every(function (x) { return typeof x === "number"; }), true, "every slot up to the car's is drawn");
+        eq(state.traceValues.slice(slot + 1).some(function (x) { return x !== null; }), false, "and none ahead of it");
+        near(state.traceValues[slot - 10], B.attractDelta(B.attractLap(v.lapCount), (slot - 10 + 0.5) / B.TRACE_N), 1, "from the script");
+        B.setAttract(state, false); set("showTrace", had);
+        car.current_lap_time_ms = 20; car.npos = 0.01; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("attract mode lasts a game session: it stays on through Escape/resume, and a restart switches it off, so a demo left on never shows on a real HUD", function () {
+        B.setAttract(state, true);
+        B.detach(state); state = B.attach(root); frame();
+        eq(state.attract, true, "Escape/resume: still on, so a recording can go on across a pause");
+        ACEUIAppLoader.persist.removeLocal("acebetterdeltabar.attract");   // the game closed: its local store went with it, the option did not
+        const said = window.__log.length;
+        B.detach(state); state = B.attach(root); frame();
+        eq(state.attract, false, "the next game session: off"); eq(ACEUIAppLoader.settings.get(me.name, "attract"), false, "and the option with it");
+        ok(window.__log.slice(said).some(function (l) { return l.indexOf("left on from an earlier game session") >= 0; }), "and the log says why");
+        car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("attract mode drives to the bar it is shown on: at a 5 s range every gain and loss is five times the 1 s one, so it swings as far across the bar; back at 1 s it is the same script again", function () {
+        const at = B.attractLap(0).start + 45000;
+        const one = B.attractValues(at, 1000), five = B.attractValues(at, 5000);
+        ok(Math.abs(one.delta) > 100, "a moment with a delta worth comparing: " + one.delta);
+        ok(Math.abs(five.delta / one.delta - 5) < 0.5, "five times the delta at five times the range (the few-ms flutter aside): " + five.delta + " vs " + one.delta);
+        eq(five.lapCount, one.lapCount, "the same lap: a change of range stretches what is shown, it does not jump to another lap"); eq(five.lapMs, one.lapMs);
+        near(B.parseLap(B.formatLap(five.predicted)) - B.parseLap(five.best), five.delta, 1, "the prediction is still the best shown plus the delta shown, to the ms");
+        eq(JSON.stringify(B.attractValues(at, 1000)), JSON.stringify(one), "and the 1 s script is the same as before");
+        eq(JSON.stringify(B.attractValues(at)), JSON.stringify(one), "no range given is the default one");
+        ok(B.formatLap(B.attractLap(0).referenceMs) === "1:43.445", "the script starts against the same best at the default range");
+    });
+
+    t("attract mode has no spring in it: on a 0.5 s bar, over a whole lap, no two quick visible swings come one after the other, and a single quick bump is rare (a few-ms flutter swung back and forth twice a second)", function () {
+        const L = B.attractLap(3);
+        const visible = 500 * 0.005;          // half a percent of the half bar, about 2 px in game
+        let dir = 0, turnAt = null, turnValue = null, prev = null, springs = 0, bumps = 0, lastQuick = false, first = "";
+        for (let t = L.start; t < L.start + L.time; t += 16) {
+            const d = B.attractValues(t, 500).delta;
+            if (prev !== null && Math.abs(d - prev) > 1e-6) {
+                const now = d > prev ? 1 : -1;
+                if (dir !== 0 && now !== dir) {
+                    const quick = turnAt !== null && t - turnAt < 1500 && Math.abs(prev - turnValue) > visible;
+                    if (quick) { bumps += 1; }
+                    if (quick && lastQuick) { springs += 1; if (!first) { first = (t - turnAt) + " ms, " + Math.abs(prev - turnValue).toFixed(1) + " ms of delta"; } }
+                    lastQuick = quick;
+                    turnAt = t; turnValue = prev;
+                }
+                dir = now;
+            }
+            prev = d;
+        }
+        eq(springs, 0, "no back-and-forth you could see" + (first ? ": " + first : ""));
+        ok(bumps <= 3, "and few single quick bumps in a lap: " + bumps);
+    });
+
+    t("attract mode drives laps like a real session: the length their times say, measured part by part against the best lap, the delta always on the move with big swings both ways, the best improving when a lap beats it", function () {
+        const lap0 = B.attractLap(0), lap1 = B.attractLap(1), lap2 = B.attractLap(2);
+        const start = B.attractValues(0), mid = B.attractValues(Math.round(lap0.time / 2)), end = B.attractValues(lap0.time - 1), next = B.attractValues(lap0.time);
+        eq(start.lapMs, 0); eq(start.npos, 0); eq(start.delta, 0, "the delta starts at 0 at the line");
+        near(mid.npos, 0.5, 0.01); ok(end.npos > 0.99); eq(end.lapMs, lap0.time - 1, "the lap clock runs the lap's own length");
+        ok(Math.abs(lap0.time - 103445) < 1000, "a lap about as long as the best it is compared with: " + lap0.time);
+        eq(next.lapCount, 1); eq(next.lapMs, 0); eq(next.delta, 0, "and starts again at the next");
+        eq(start.best, "1:43.445"); eq(start.last, "1:43.987"); eq(start.optimal, "1:43.445", "one lap so far: its sectors are the best"); eq(start.invalid, false);
+        eq(next.last, B.formatLap(lap0.time), "the lap just driven is the last lap");
+        eq(next.best, B.formatLap(Math.min(103445, lap0.time)), "and the best, if it beat it");
+        eq(end.predicted, lap0.referenceMs + end.delta, "the prediction is the best plus the delta, as the game's is");
+        eq(end.current, B.formatLap(end.lapMs));
+        ok(lap0.time !== lap1.time && lap1.time !== lap2.time, "no two laps alike");
+        eq(JSON.stringify(B.attractValues(123456)), JSON.stringify(B.attractValues(123456)), "and each the same every time it is played");
+        // ten laps: every one within a second of its best, the best never rising, the optimal never slower than it, and big swings both ways
+        let bigGains = 0, bigLosses = 0;
+        for (let k = 0; k < 10; k += 1) {
+            const L = B.attractLap(k), v = B.attractValues(L.start);
+            ok(Math.abs(L.time - L.referenceMs) < 1000, "lap " + k + " within a second of the best: " + (L.time - L.referenceMs));
+            if (k > 0) { ok(L.referenceMs <= B.attractLap(k - 1).referenceMs, "the best never gets worse"); }
+            ok(B.parseLap(v.optimal) <= L.referenceMs, "lap " + k + ": the optimal " + v.optimal + " is never slower than the best " + v.best);
+            eq(L.referenceMs, Math.min.apply(null, [103445].concat(Array.apply(null, Array(k)).map(function (x, i) { return B.attractLap(i).time; }))), "lap " + k + ": the reference is the best lap so far");
+            let low = 0, high = 0;
+            for (let p = 0; p <= 200; p += 1) { const d = B.attractDelta(L, p / 200); low = Math.min(low, d); high = Math.max(high, d); }
+            if (low <= -150) { bigGains += 1; }
+            if (high >= 150) { bigLosses += 1; }
+        }
+        ok(bigGains >= 3 && bigLosses >= 3, "laps that go 0.15 s and more up (" + bigGains + ") and down (" + bigLosses + ") against the best, of ten");
+        // lap 0 played at 60 fps: no step a car could not make, and the trend both ways through the corners, flat for most of the lap
+        let prev = null, maxStep = 0, gain = 0, lose = 0, flat = 0;
+        const ring = [];
+        for (let t = 0; t < lap0.time; t += 16) {
+            const d = B.attractValues(t).delta;
+            if (prev !== null) { maxStep = Math.max(maxStep, Math.abs(d - prev)); }
+            prev = d; ring.push(d);
+            if (ring.length > 63) {
+                const rate = d - ring[ring.length - 64];
+                if (rate <= -15) { gain += 1; } else if (rate >= 15) { lose += 1; } else { flat += 1; }
+            }
+        }
+        ok(maxStep <= 10, "the largest step between two frames is " + maxStep + " ms");
+        ok(gain > 0 && lose > 0, "time gained and lost at 15 ms/s or more somewhere: " + gain + " / " + lose + " frames");
+        ok(flat > 0, "and steady at times: " + flat + " frames");
+        // never stuck on a number: in every 3 s of the lap the delta moves by some milliseconds at least
+        const perWindow = Math.round(3000 / 16);
+        for (let w = 0; w + perWindow <= ring.length; w += perWindow) {
+            const slice = ring.slice(w, w + perWindow);
+            ok(Math.max.apply(null, slice) - Math.min.apply(null, slice) >= 5, "the delta moves in the 3 s from frame " + w + ": " + Math.min.apply(null, slice) + " to " + Math.max.apply(null, slice));
+        }
         ok(!state.attract, "off by default");
         B.setAttract(state, true); ok(state.attract); eq(ACEUIAppLoader.settings.get(me.name, "attract"), true);
-        run(200); ok(figure.textContent !== "--.---", "drawing the script"); eq(cellTime("optimal"), "1:43.102");
+        run(200); ok(figure.textContent !== "--.---", "drawing the script"); eq(cellTime("optimal"), B.attractValues(now).optimal);
         B.setAttract(state, false); ACEUIAppLoader.settings.reset(me.name);
     });
 
