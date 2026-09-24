@@ -8,7 +8,10 @@
 
 </div>
 
-<p align="center"><img width="640" alt="The Better Delta Bar: the bar shows the lap is up, the number shows time is being lost right now, the lap times underneath" src="docs/images/widget.png" /></p>
+<p align="center">
+<img width="1212" height="258" alt="delta3_H_nat_50_96" src="https://github.com/user-attachments/assets/0881b8be-0a9a-4bfc-9377-6a47393c886d" />
+</p>
+
 
 The bar shows where your lap stands against the reference. The number's colour shows which way it is heading: green while you are gaining, red while you are losing, white while it holds. The game's own bar colours both by the lap as a whole, so a lap that is up but losing time in every corner stays green.
 
