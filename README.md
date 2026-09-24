@@ -59,6 +59,10 @@ In the car, move your mouse to the right edge of the screen. The delta bar is li
 > [!TIP]
 > Switch the game's own delta bar off, or you have two: **Escape -> Settings -> Gameplay / HUD -> HUD -> Delta Timer → Off**.
 
+<p align="center">
+<img width="2560" height="1440" alt="20EDF4~1" src="https://github.com/user-attachments/assets/c873a23f-9d15-4b50-a887-deba9318c956" />
+</p>
+
 ---
 
 ## Reading it
