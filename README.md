@@ -54,7 +54,7 @@ Drag **both** folders out of the zip into that window. If Windows asks, choose t
 In the car, move your mouse to the right edge of the screen. The delta bar is listed in the app drawer with its own switch and an **OPTIONS** button.
 
 > [!TIP]
-> Switch the game's own delta bar off, or you have two: **Settings → Gameplay → HUD → Delta Widget → Off**.
+> Switch the game's own delta bar off, or you have two: **Escape -> Settings -> Gameplay / HUD -> HUD -> Delta Timer → Off**.
 
 ---
 
