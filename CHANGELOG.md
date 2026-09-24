@@ -6,6 +6,7 @@ Needs ACE UI App Loader 0.26.0.
 
 ### Look
 - Centre mark on the bar in both layouts; the compact bar had none.
+- The tick at the end of the fill is thinner, so it no longer blends into the figure.
 - The figure's decimal point now lines up with the centre mark.
 - No reference lap: no figure and no chevrons instead of a dim placeholder.
 - Compact bar with Background: none has a darker track, fixing a flickering edge.

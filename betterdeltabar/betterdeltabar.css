@@ -332,13 +332,16 @@ body.hide-hud .ace-betterdeltabar {
     transform: translateX(0%);
 }
 
+/* the end of the fill: a hairline, about 2 px at the default scale. At 0.15em (4 to 5 px) it read as a stroke
+   of the figure's own digits whenever the delta was near zero and the tick passed under the number (reported
+   from the game, 2026-09-24) */
 .ace-betterdeltabar .bd-tick {
     position: absolute;
     left: 50%;
     top: 0;
     bottom: 0;
-    width: 0.15em;
-    margin-left: -0.075em;
+    width: 0.07em;
+    margin-left: -0.035em;
     background: rgba(255, 255, 255, 0.9);
 }
 

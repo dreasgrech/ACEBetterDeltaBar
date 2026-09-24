@@ -2647,6 +2647,45 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ok(bumps <= 3, "and few single quick bumps in a lap: " + bumps);
     });
 
+    t("attract mode leaves nothing behind on the real lap: switched on for five seconds mid-lap (a notice arriving meanwhile) and off again, every frame the HUD shows afterwards is exactly what a HUD reload at the same moment shows", function () {
+        const had = state.traceOn;
+        const snap = function () {
+            return [root.className.split(/\s+/).filter(function (c) { return c; }).sort().join(" "), figure.textContent, q(".bd-invalid-tag").textContent,
+                q(".bd-cell-best .bd-time").textContent, q(".bd-cell-optimal .bd-time").textContent, q(".bd-cell-pred .bd-time").textContent, q(".bd-cell-pred").className,
+                right.style.transform, left.style.transform, q(".bd-ticktrack").style.transform,
+                ups.map(function (u) { return u.style.transform; }).join(","), downs.map(function (d) { return d.style.transform; }).join(",")].join(" | ");
+        };
+        const cutNotice = function () { notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); };
+        const drive = function (gap) {
+            // a fresh widget and no record, then the same real lap each time: the delta drifting, a cut at 15 s with the game's notice
+            B.detach(state); me.forget("lap"); ACEUIAppLoader.persist.removeLocal("acebetterdeltabar.trace"); state = B.attach(root); set("showTrace", true);
+            car.low_frequency = { total_lap_count: 6 }; timing.best = "1:43.000"; timing.ideal = "1:42.800"; car.current_lap_time_ms = 20; car.npos = 0.01;
+            timing.invalid = false; setDelta(-150); frame();
+            const t0 = now;
+            const at = function (n) {
+                const ms = n - t0;
+                car.current_lap_time_ms = 20 + ms; car.npos = 0.01 + ms / 110000; setDelta(Math.round(-150 + ms / 80)); car.predicted_lap_time_ms = 103000 + Math.round(-150 + ms / 80);
+            };
+            run(15000, at);
+            timing.invalid = true; cutNotice(); run(5000, at);
+            gap(at);
+            const shots = [];
+            const end = now + 10000;
+            while (now < end) { frame(at); shots.push(snap()); }
+            return shots;
+        };
+        // during the reload the page is gone: the game's notice reaches no listener at all
+        const reloaded = drive(function (at) { B.detach(state); run(2000, at); if (typeof engineHandlers.UINotification === "function") { cutNotice(); } run(3000, at); state = B.attach(root); });
+        const demoed = drive(function (at) { B.attract(true); run(2000, at); cutNotice(); run(3000, at); B.attract(false); });
+        eq(demoed.length, reloaded.length, "the same number of frames compared");
+        const first = demoed.findIndex(function (x, i) { return x !== reloaded[i]; });
+        eq(first, -1, first < 0 ? "every frame the same" : "first difference at frame " + first + ":\n  demo   " + demoed[first] + "\n  reload " + reloaded[first]);
+        ok(demoed[demoed.length - 1].indexOf("INVALID") >= 0, "and the real cut came back after the demo, as after the reload: " + demoed[demoed.length - 1].split(" | ")[2]);
+        car.low_frequency = undefined; car.predicted_lap_time_ms = -1; timing.best = ""; timing.ideal = ""; timing.invalid = false; setDelta(-235);
+        car.current_lap_time_ms = 20; car.npos = 0.01; frame(); car.current_lap_time_ms = 200; frame();
+        set("showTrace", had);
+    });
+
     t("attract mode drives laps like a real session: the length their times say, measured part by part against the best lap, the delta always on the move with big swings both ways, the best improving when a lap beats it", function () {
         const lap0 = B.attractLap(0), lap1 = B.attractLap(1), lap2 = B.attractLap(2);
         const start = B.attractValues(0), mid = B.attractValues(Math.round(lap0.time / 2)), end = B.attractValues(lap0.time - 1), next = B.attractValues(lap0.time);
