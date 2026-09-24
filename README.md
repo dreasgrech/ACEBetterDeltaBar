@@ -16,6 +16,9 @@
 
 The bar shows where your lap stands against the reference. The number's colour shows which way it is heading: green while you are gaining, red while you are losing, white while it holds. The game's own bar colours both by the lap as a whole, so a lap that is up but losing time in every corner stays green.
 
+<img width="2560" height="1440" alt="20DC2E~1" src="https://github.com/user-attachments/assets/b9511b66-c29c-46fa-ae6b-f0df61f29e2d" />
+
+
 Under the bar sit your session optimal, session best and predicted lap. The compact layout is a thin bar with the number in a tag that follows the end of the fill. The full layout can add a trace of the delta across the lap. Drag it anywhere on the HUD and it stays there.
 
 <p align="center">
