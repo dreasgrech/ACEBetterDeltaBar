@@ -22,7 +22,8 @@
  * of the stock ks-* component framework; it only reads the global model objects the game
  * refreshes every frame and draws into one plain <div>. Styling lives in
  * betterdeltabar.css; this file writes no colours or sizes, only transforms, classes
- * and text.
+ * and text (the one exception: each trace slot's left and width, in %, written once when
+ * the markup is built).
  *
  * Built on the ACEUIAppLoader library: `me.panel` makes the root draggable and persists
  * its position and runs the frame loop, `ACEUIAppLoader.loop.sampler` samples the delta
@@ -59,11 +60,9 @@
  * the sample one window ago (a second by default). The difference per second is the rate
  * the delta is moving at; inside a dead band it reads flat, past it gaining or losing,
  * and past several bands strongly so. Staying in a trend needs half the band and entering one
- * the whole band, so jitter smaller than the band cannot flip the colour; the strong glow is entered at five bands
- * and kept to four. A jump between two samples, or a change of the delta's reference, starts
- * the ring again. The older wording said leaving a trend needs the rate to fall to half the
- * band, so the colour does not flicker at the threshold. A jump between two samples
- * bigger than any driving could make (a new lap, a new reference) resets the ring rather
+ * the whole band, so jitter smaller than the band cannot flip the colour; the strong glow is
+ * entered at five bands and kept to four. A jump between two samples bigger than any driving
+ * could make (a new lap), or a change of the delta's reference, starts the ring again rather
  * than reading as a huge trend.
  *
  * Usage: `BetterDeltaBar.attach(rootElement)` returns the widget's state;
@@ -79,11 +78,14 @@ const BetterDeltaBar = (function () {
 
     /** The game's "no delta" sentinel in delta_time_ms_ui: int32 max. */
     const NO_DELTA_MS = 2147483647;
+    /** The same int32 maximum as the game's "nothing" in any of its int fields: no lap clock or lap count reaches it. */
+    const INT32_SENTINEL = NO_DELTA_MS;
     /** A delta or lap time beyond an hour is a sentinel or garbage, not a time. */
     const MAX_TIME_MS = 3600000;
     const MS_PER_S = 1000;
     const MS_PER_MIN = 60000;
     const S_PER_MIN = 60;
+    const MIN_PER_HOUR = 60;
     const LOG_EVERY_MS = 60000;
     /** Fields that could move every frame are logged on change, but no more often than this, or the game log takes a line a frame. */
     const CHANGE_LOG_MS = 1000;
@@ -195,6 +197,8 @@ const BetterDeltaBar = (function () {
      * "Pitentry"). These three are the pit lane; anything else says nothing either way.
      */
     const PIT_LOCATIONS = { Pitlane: true, Pitentry: true, Pitexit: true };
+    /** The one location that says the car is out on the circuit (Unassigned says nothing). */
+    const TRACK_LOCATION = "Track";
     /**
      * What ModelTiming.current reads on the lap out of the pits, before a timed lap has
      * begun. The game flags that lap invalid from the start; the stock lap-time widget hides
@@ -237,9 +241,9 @@ const BetterDeltaBar = (function () {
      * notification, the same event the stock notification panel draws its top-right box from
      * (`engine.on("UINotification")`, components.js NotificationPanel). A session-penalty
      * message carries `tuples[0].values`: "[{PENALTY_..._KEY} #<car number>", the reason key,
-     * the penalty type key]; a track-limits cut in practice came as "{PENALTY_CLEARED_KEY}
-     * #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED"] for a
-     * track-limits cut in practice (2026-09-22). The type key is matched exactly and the car
+     * the penalty type key]; a track-limits cut in practice (2026-09-22) came as
+     * ["{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut",
+     * "lblNotificationPenalty_LAP_INVALIDATED"]. The type key is matched exactly and the car
      * number against the focused car in the cars-on-track model, so another car's penalty
      * online is not ours. The timing flag alone cannot tell this apart from a pit exit (see above), so this
      * is what makes the tag appear on a first lap.
@@ -370,6 +374,9 @@ const BetterDeltaBar = (function () {
      */
     const POINT = ".";
     const NARROW = ":.";
+    /** A narrow glyph (the point, the colon) is one half glyph wide, any other two. */
+    const NARROW_HALF_GLYPHS = 1;
+    const WIDE_HALF_GLYPHS = 2;
     const LEAN_MIN = -7;
     const LEAN_MAX = 4;
     const LEAN_CLASSES = ["bd-lean-n7", "bd-lean-n6", "bd-lean-n5", "bd-lean-n4", "bd-lean-n3", "bd-lean-n2", "bd-lean-n1", "bd-lean-0", "bd-lean-1", "bd-lean-2", "bd-lean-3", "bd-lean-4"];
@@ -386,7 +393,6 @@ const BetterDeltaBar = (function () {
     /** Class names shared with betterdeltabar.css. */
     const CLASS = {
         root: "ace-betterdeltabar",
-        dragging: "dragging",
         /** The line above the bar: who the delta is against and the no-reference note on the left, the invalid tag on the right. */
         top: "bd-top",
         topLeft: "bd-top-left",
@@ -476,7 +482,6 @@ const BetterDeltaBar = (function () {
 
     /** The options, declared once at load so the drawer offers OPTIONS and the values are there before attach. */
     const SETTING = {
-        scale: "scale",
         layout: "layout",
         width: "width",
         side: "fasterSide",
@@ -558,7 +563,7 @@ const BetterDeltaBar = (function () {
         toggle(SETTING.hideNoRef, "Hide until a reference lap", false, "nothing on screen until there is a delta to show"),
         toggle(SETTING.optimal, "Session optimal", true, "your best sectors added up", inFull),
         toggle(SETTING.best, "Session best", true, null, inFull),
-        toggle(SETTING.pred, "Predicted lap", true, "green when it beats the best by 20 ms, red when it trails it by 20 ms", inFull),
+        toggle(SETTING.pred, "Predicted lap", true, "green when it beats the best by " + PRED_BAND_MS + " ms, red when it trails it by " + PRED_BAND_MS + " ms", inFull),
         toggle(SETTING.last, "Last lap", false, null, inFull),
         toggle(SETTING.trace, "Lap trace", false, "the delta across the lap, under the bar", inFull),
         toggle(SETTING.follow, "Figure follows the fill", true, "the tag moves with the end of the bar", inCompact),
@@ -585,14 +590,24 @@ const BetterDeltaBar = (function () {
     };
 
     /**
+     * A delta rounded to the decimals shown, away from zero on a half both ways (Math.round
+     * alone takes -23.5 to -23). The bar and the sign are drawn from this, not the raw delta,
+     * so a figure reading 0.00 never has a green sign or a sliver of fill beside it (review
+     * 2026-09-23: with two decimals a delta of -4 ms read "0.00" and painted the faster side).
+     */
+    const roundDelta = function (ms, decimals) {
+        const unit = Math.pow(DECIMAL_BASE, MS_DIGITS - decimals);
+
+        return (ms < 0 ? -1 : 1) * Math.round(Math.abs(ms) / unit) * unit;
+    };
+
+    /**
      * A delta in ms as "-0.235", "+0.24" or "+1:02.345": the sign only when there is one,
      * seconds without padding, minutes only past sixty seconds. Rounded to the decimals
      * shown, so a figure never reads 0.1 while the bar shows time lost.
      */
     const formatDelta = function (ms, decimals) {
-        const unit = Math.pow(DECIMAL_BASE, MS_DIGITS - decimals);
-        // rounded away from zero on a half, both ways: Math.round alone takes -23.5 to -23
-        const rounded = (ms < 0 ? -1 : 1) * Math.round(Math.abs(ms) / unit) * unit;
+        const rounded = roundDelta(ms, decimals);
         const abs = Math.abs(rounded);
         const secs = Math.floor(abs / MS_PER_S);
         const frac = pad(abs % MS_PER_S, MS_DIGITS).substring(0, decimals);
@@ -638,7 +653,7 @@ const BetterDeltaBar = (function () {
 
         if (!m) { return null; }
 
-        const hours = m[LAP_GROUP_HOURS] ? parseInt(m[LAP_GROUP_HOURS], DECIMAL_BASE) * S_PER_MIN * MS_PER_MIN : 0;
+        const hours = m[LAP_GROUP_HOURS] ? parseInt(m[LAP_GROUP_HOURS], DECIMAL_BASE) * MIN_PER_HOUR * MS_PER_MIN : 0;
         const fraction = parseInt((m[LAP_GROUP_FRACTION] + pad(0, MS_DIGITS)).substring(0, MS_DIGITS), DECIMAL_BASE);
 
         return hours + parseInt(m[LAP_GROUP_MINUTES], DECIMAL_BASE) * MS_PER_MIN + parseInt(m[LAP_GROUP_SECONDS], DECIMAL_BASE) * MS_PER_S + fraction;
@@ -689,7 +704,7 @@ const BetterDeltaBar = (function () {
 
     /** A string's width in half glyphs of the figure's font. */
     const halfGlyphs = function (text) {
-        return text.split("").reduce(function (sum, glyph) { return sum + (NARROW.indexOf(glyph) >= 0 ? 1 : 2); }, 0);
+        return text.split("").reduce(function (sum, glyph) { return sum + (NARROW.indexOf(glyph) >= 0 ? NARROW_HALF_GLYPHS : WIDE_HALF_GLYPHS); }, 0);
     };
 
     /** The figure's lean (see LEAN_CLASSES): how far its point is from the middle of the text, in half glyphs. */
@@ -839,12 +854,19 @@ const BetterDeltaBar = (function () {
             lapMs: null,                // the last lap time seen; it going backwards is a new lap
             lapCount: null,             // the car's lap count last seen, the lap's identity for a remembered cut
             lapClockSeen: false,        // this lap has shown a lap clock (a boundary frame may lack it: then its first moments are not over)
+            boundaryClock: null,        // the lap clock on the frame the last boundary was taken: a count moving just after it is the same boundary
             carId: "",                  // the focused car last seen: another car is another lap
             sessionKey: "",             // the session last seen, filed with the lap's record
             lapStartedInvalid: true,    // the invalid flag was already up when this lap began (a pit exit): not a cut
             lapCut: false,              // this lap is invalidated: the game's notice, or the flag rising on a lap driven wholly on the track
             cutReason: "",              // why, in the game's words, when its notice said ("TRACK LIMITS"); empty for the flag alone
             pitLap: false,              // the car has been in the pit lane during this lap: the flag rising on it is the pit exit, not a cut
+            pitLate: false,             // and the car had been seen on the track this lap before it: an in-lap, whose flag is the pit entry's
+            trackSeen: false,           // the car has been on the track (car_location Track) during this lap
+            hiddenCut: false,           // on the track after the pit lane this lap, under the pit exit's flag: a cut there leaves no trace
+            hiddenOwed: false,          // the lap before may have hidden a cut: a verdict that would otherwise mark this lap is its
+            verdictOwed: false,         // the lap before ended cut with no reason yet: the next verdict is its, not this lap's
+            heldVerdict: null,          // a verdict that came while the remembered lap waited for its count: judged once the record is settled
             nextLapInvalid: false,      // the game announced the lap that follows invalid (PenaltyType_InvalidNextLap)
             nextLapReason: "",          // and why
             cutAt: 0,                   // when this lap was marked cut (frame clock), for a reason arriving just after
@@ -906,7 +928,9 @@ const BetterDeltaBar = (function () {
         state.band = TREND_BANDS[options[SETTING.trendBand]] || TREND_BANDS[TREND_BAND_DEFAULT];
         state.fasterRight = options[SETTING.side] !== SIDE_LEFT;
         state.followOn = compact && options[SETTING.follow] !== false;
-        state.traceOn = options[SETTING.trace] === true;
+        // the trace is the full layout's: compact has no strip for it, and writing 120 hidden
+        // slots a lap for nothing is what the switch left on would otherwise cost there
+        state.traceOn = options[SETTING.trace] === true && !compact;
         state.invalidOn = options[SETTING.invalid] !== false;
 
         setClass(root, CLASS.compact, compact);
@@ -946,8 +970,8 @@ const BetterDeltaBar = (function () {
         state.lastPred = "";
         state.lastStatus = "";
         state.lastVs = "";
-        state.lastUps = [];
-        state.lastDowns = [];
+        // the trace caches are left alone: clearTrace above kept them true to the slots, and emptying
+        // them made the next clear write all 240 transforms for nothing (fifth pass, 2026-09-23)
         state.hasRef = null;
         state.invalid = null;
         state.hasDriver = null;
@@ -968,8 +992,11 @@ const BetterDeltaBar = (function () {
             state.nextLapInvalid = false;
             state.nextLapReason = "";
             state.restorePending = false;
+            state.heldVerdict = null;
             state.lapMs = null;
             state.lapCount = null;
+            state.lapClockSeen = false;
+            state.boundaryClock = null;
             state.carId = "";
             state.lastRawInvalid = null;
             state.lapStartedInvalid = true;   // a flag found up before the lap is joined is not a cut
@@ -1019,7 +1046,7 @@ const BetterDeltaBar = (function () {
     const lapClockOf = function (x) {
         // not a delta: the clock runs on past the hour while the car sits in the pit lane, and a
         // widget attached then must still draw; only the sentinel and nonsense are no clock
-        return typeof x === "number" && isFinite(x) && x >= 0 && x < NO_DELTA_MS ? x : null;
+        return typeof x === "number" && isFinite(x) && x >= 0 && x < INT32_SENTINEL ? x : null;
     };
 
     /** A timing string as the game sends it, or "" when the field is not a string. */
@@ -1035,7 +1062,8 @@ const BetterDeltaBar = (function () {
     /**
      * What the widget shows, read from the game's models, or null when there is no focused
      * car. The delta is the raw `delta_time_ms` when it is sane (the same number as the UI
-     * field in all 70 pairs measured, 57 of them not multiples of ten: there is no UI rounding) and the UI delta otherwise; either way the UI field's sentinel means none.
+     * field in all 70 pairs measured, 57 of them not multiples of ten: there is no UI rounding)
+     * and the UI delta otherwise; either way the UI field's sentinel means none.
      */
     const readModel = function () {
         const car = window.ModelCurrentCar;
@@ -1046,7 +1074,8 @@ const BetterDeltaBar = (function () {
         let delta = null;
         let npos = null;
 
-        if (typeof car.delta_time_ms_ui === "number" && car.delta_time_ms_ui !== NO_DELTA_MS) {
+        // screened like every number: a NaN gate would read as a reference with a delta of nothing
+        if (numberOf(car.delta_time_ms_ui) !== null && car.delta_time_ms_ui !== NO_DELTA_MS) {
             delta = deltaOf(car.delta_time_ms);
 
             if (delta === null) { delta = deltaOf(car.delta_time_ms_ui); }
@@ -1062,7 +1091,8 @@ const BetterDeltaBar = (function () {
             delta: delta,
             predicted: lapTimeOf(car.predicted_lap_time_ms),
             lapMs: lapClockOf(car.current_lap_time_ms),
-            lapCount: car.low_frequency && typeof car.low_frequency.total_lap_count === "number" ? car.low_frequency.total_lap_count : null,
+            // screened like every other number: a NaN here would read as the count moving every frame
+            lapCount: car.low_frequency ? lapCountOf(car.low_frequency.total_lap_count) : null,
             carId: typeof car.focused_car_id === "string" ? car.focused_car_id : "",
             sessionKey: sessionKeyOf(),
             cutGained: numberOf(car.low_frequency && car.low_frequency.race_cut_gained_time_ms),
@@ -1072,6 +1102,7 @@ const BetterDeltaBar = (function () {
             driver: typeof car.delta_time_drivername === "string" ? car.delta_time_drivername : "",
             location: typeof car.car_location === "string" ? car.car_location : "",
             inPits: typeof car.car_location === "string" && PIT_LOCATIONS[car.car_location] === true,
+            onTrack: car.car_location === TRACK_LOCATION,
             current: timeString(timing, "current"),
             best: timeString(timing, "best"),
             optimal: timeString(timing, "ideal"),
@@ -1090,9 +1121,17 @@ const BetterDeltaBar = (function () {
     const sessionKeyOf = function () {
         const session = window.ModelUISessionState;
 
-        if (!session || typeof session.event_id !== "number" || typeof session.session_id !== "number") { return ""; }
+        // screened like every number: a NaN id would make a key that matches its own record
+        if (!session || numberOf(session.event_id) === null || numberOf(session.session_id) === null) { return ""; }
 
         return session.event_id + "/" + session.session_id;
+    };
+
+    /** A lap count as a number, or null: a count is a small non-negative integer, never the sentinel. */
+    const lapCountOf = function (x) {
+        const n = numberOf(x);
+
+        return n !== null && n >= 0 && n < INT32_SENTINEL ? n : null;
     };
 
     /**
@@ -1115,6 +1154,7 @@ const BetterDeltaBar = (function () {
     /** With this many drivers or fewer there is nobody else a notice could be about. */
     const SOLO_DRIVERS = 1;
 
+    /** Switches the own-car model on (see OWN_CAR_MODELS for why and when). */
     const enableOwnCarModels = function (state) {
         const models = window.ksUI && window.ksUI.Models;
 
@@ -1149,7 +1189,13 @@ const BetterDeltaBar = (function () {
         return Math.max(counted, listed);
     };
 
+    /** The focused car's number from the cars-on-track model (see OWN_CAR_MODELS), or null. */
     const ownCarNumber = function () {
+        const models = window.ksUI && window.ksUI.Models;
+
+        // a model on the switched-off list keeps its last values on the window: stale, so unknown (second review, 2026-09-24)
+        if (models && Array.isArray(models.Disabled) && models.Disabled.indexOf(OWN_CAR_MODELS[0]) >= 0) { return null; }
+
         const onTrack = window.ModelCarsOnTrack;
         const cars = onTrack && Array.isArray(onTrack.cars_on_track) ? onTrack.cars_on_track : [];
         let found = null;
@@ -1228,9 +1274,9 @@ const BetterDeltaBar = (function () {
         return penalty.type === LAP_INVALIDATED_TYPE || penalty.type === INVALID_LAP_TYPE || penalty.type === NO_GAIN_TYPE || penalty.reason === CUT_REASON;
     };
 
-    /** Which lap a penalty notification for OUR car invalidates: THIS_LAP, NEXT_LAP, or "" for none. */
     const THIS_LAP = "this";
     const NEXT_LAP = "next";
+    /** Which lap a penalty notification for OUR car invalidates: THIS_LAP, NEXT_LAP, or "" for none. */
     const invalidates = function (penalty) {
         if (!isOwnCar(penalty)) { return ""; }
 
@@ -1406,8 +1452,10 @@ const BetterDeltaBar = (function () {
      */
     const renderDelta = function (state, delta) {
         const hasRef = delta !== null;
-        const share = hasRef ? shareOf(state, delta) : 0;
-        const sign = hasRef && delta !== 0 ? (delta < 0 ? -1 : 1) : 0;
+        // the delta as shown: fill, tick and sign agree with the figure to the last digit
+        const shown = hasRef ? roundDelta(delta, state.decimals) : 0;
+        const share = hasRef ? shareOf(state, shown) : 0;
+        const sign = hasRef && shown !== 0 ? (shown < 0 ? -1 : 1) : 0;
         // the fill on the right when the delta is on the side the right stands for
         const onRight = sign !== 0 && (sign < 0) === state.fasterRight;
         const signedShare = onRight ? share : -share;
@@ -1516,7 +1564,12 @@ const BetterDeltaBar = (function () {
         // valid. Otherwise a lap the pit lane is part of gets the quiet tag: PIT LANE while in it,
         // OUTLAP once out with the flag still up. A lap flagged from its start with no
         // notification and no location to go by is a pit exit too, unnamed.
-        const invalid = state.invalidOn && (state.lapCut ? m.rawInvalid : (m.invalid && !state.lapStartedInvalid && !state.pitLap));
+        // While a remembered record waits for the lap count (restorePending) it may yet say this lap has the
+        // pit lane in it, and a flag rising meanwhile would be the pit exit's: a cut from the flag alone is not
+        // painted until it has spoken; a cut the game named is (second review, 2026-09-24)
+        const flagOnly = state.lapCut ? state.cutReason === "" : true;
+        const invalid = state.invalidOn && !(state.restorePending && flagOnly)
+            && (state.lapCut ? m.rawInvalid : (m.invalid && !state.lapStartedInvalid && !state.pitLap));
         const pit = state.invalidOn && !invalid && (m.inPits === true || (m.rawInvalid && state.pitLap));
         const topOn = hasDriver || invalid || pit || state.hasRef === false;
         let predState = PRED_EVEN;
@@ -1621,7 +1674,7 @@ const BetterDeltaBar = (function () {
         // forgotten; and the scripted lap has no record worth keeping, nor may it touch the real one
         if (state.restorePending || state.attract) { return; }
 
-        const known = state.lapCut || state.pitLap || state.nextLapInvalid;
+        const known = state.lapCut || state.pitLap || state.nextLapInvalid || state.verdictOwed || state.hiddenCut || state.hiddenOwed;
 
         if (!known && !state.lapRemembered) { return; }
 
@@ -1635,6 +1688,7 @@ const BetterDeltaBar = (function () {
 
             me.remember(LAP_KEY, {
                 sess: state.sessionKey,
+                car: state.carId,
                 lap: state.lapCount,
                 // a lap whose clock has not come yet is at its start: stamping the clock kept from
                 // the lap before would put the mark beyond anything this lap can reach, and every
@@ -1643,8 +1697,13 @@ const BetterDeltaBar = (function () {
                 cut: state.lapCut,
                 reason: state.cutReason,
                 pit: state.pitLap,
+                pitLate: state.pitLate,
+                track: state.trackSeen,
                 next: state.nextLapInvalid,
-                nextReason: state.nextLapReason
+                nextReason: state.nextLapReason,
+                owed: state.verdictOwed,
+                hidden: state.hiddenCut,
+                hiddenOwed: state.hiddenOwed
             });
             state.lapRemembered = true;
         });
@@ -1657,14 +1716,34 @@ const BetterDeltaBar = (function () {
         state.lapCut = false;
         state.cutReason = "";
         state.pitLap = false;
+        state.pitLate = false;
+        state.trackSeen = false;
+        state.hiddenCut = false;
+        state.hiddenOwed = false;
+        state.verdictOwed = false;
     };
 
     /**
      * A new lap started: the trace starts over, so does the trend, the cut and the pit-lane
      * visit are forgotten, and an invalidation the game announced for this lap takes effect.
      */
-    const newLap = function (state) {
+    const newLap = function (state, anotherCar) {
+        // A lap that ends cut with no reason yet (a race: the NO GAIN comes 4 to 10 s after the flag)
+        // is owed its verdict: the next one to arrive is that lap's, whatever lap the car is on by then.
+        // Not when the lap ends because another car came under focus: its verdicts are not ours.
+        // A debt not yet paid survives a lap that never reached the track (a return to the pits two
+        // seconds after the line): no cut can have happened on it, so the verdict still due is the
+        // older lap's (eighth round).
+        const owed = !anotherCar && ((state.lapCut && state.cutReason === "") || (state.verdictOwed && !state.trackSeen));
+        // a lap that was not cut but had the car on the track under a flag that was not a cut's (an out-lap) may
+        // have hidden a cut there. That is a weaker debt: it takes only a verdict that would otherwise mark a lap
+        // with no cut of its own, never one that names a cut this lap's flag showed (ninth and tenth rounds: as a
+        // full debt it took the reason from the first cut lap after every pit stop, and every cut lap after that)
+        const hiddenOwed = !anotherCar && ((state.hiddenCut && !state.lapCut) || (state.hiddenOwed && !state.trackSeen));
+
         forgetLap(state);
+        state.verdictOwed = owed;
+        state.hiddenOwed = hiddenOwed;
         // a reason belongs to the lap its notice came on
 
         if (state.nextLapInvalid) {
@@ -1684,6 +1763,24 @@ const BetterDeltaBar = (function () {
         state.cutReason = reason || "";
         state.cutAt = state.lastFrameAt;
         rememberLap(state);
+    };
+
+    /**
+     * A remembered lap of our car in this session, as far as the frame can tell, that is owed a verdict: cut
+     * with no reason yet, or still carrying an unpaid debt of its own. Which lap it is, is for the caller to say.
+     */
+    const owesVerdict = function (kept, m) {
+        // a debt the record carries is passed on only if its lap never reached the track, as newLap passes one on
+        return Boolean(kept) && typeof kept === "object" && ((kept.cut === true && kept.reason === "") || (kept.owed === true && kept.track !== true))
+            && !(typeof kept.sess === "string" && kept.sess !== "" && m.sessionKey !== "" && kept.sess !== m.sessionKey)
+            && !(typeof kept.car === "string" && kept.car !== "" && m.carId !== "" && kept.car !== m.carId);
+    };
+
+    /** The same for the weaker debt: a remembered out-lap that may have hidden a cut, or a lap still carrying that debt. */
+    const owesHiddenVerdict = function (kept, m) {
+        return Boolean(kept) && typeof kept === "object" && ((kept.hidden === true && kept.cut !== true) || (kept.hiddenOwed === true && kept.track !== true))
+            && !(typeof kept.sess === "string" && kept.sess !== "" && m.sessionKey !== "" && kept.sess !== m.sessionKey)
+            && !(typeof kept.car === "string" && kept.car !== "" && m.carId !== "" && kept.car !== m.carId);
     };
 
     /**
@@ -1719,8 +1816,14 @@ const BetterDeltaBar = (function () {
         state.restorePending = false;
 
         // the clock must have reached the mark the record was written at: within a session a lap's
-        // clock only goes forward, so the same lap number at an earlier clock is another session's
-        if (kept && typeof kept === "object" && typeof kept.at === "number" && clock !== null && clock >= kept.at) {
+        // clock only goes forward, so the same lap number at an earlier clock is another session's.
+        // Forward but for the multiplayer clock's own corrections (back by up to 54 ms measured): a step
+        // back no bigger than the boundary's jitter, well into the lap, is still the lap that wrote the
+        // mark (second review, 2026-09-24: a one-frame spell without the car across a correction lost the red)
+        const reached = kept && typeof kept === "object" && typeof kept.at === "number" && clock !== null
+            && (clock >= kept.at || (clock >= LAP_CLOCK_LANDING_MS && kept.at - clock <= LAP_CLOCK_JITTER_MS));
+
+        if (reached) {
             same = typeof kept.lap === "number" ? kept.lap === m.lapCount : m.rawInvalid;
         }
 
@@ -1728,6 +1831,14 @@ const BetterDeltaBar = (function () {
         if (same && typeof kept.sess === "string" && kept.sess !== "" && m.sessionKey !== "" && kept.sess !== m.sessionKey) {
             same = false;
             log("the lap remembered from before the reload belongs to another session");
+        }
+
+        // nor another car's: a reload that comes back with another car under focus, on a lap with
+        // the same number and the flag up (its pit exit), must not paint our cut on it (fifth pass,
+        // 2026-09-23). Judged only when both frames named the car
+        if (same && typeof kept.car === "string" && kept.car !== "" && m.carId !== "" && kept.car !== m.carId) {
+            same = false;
+            log("the lap remembered from before the reload belongs to another car");
         }
 
         // a cut is only ever restored under the game's flag: a record left by an earlier session
@@ -1738,12 +1849,10 @@ const BetterDeltaBar = (function () {
             log("the cut remembered from before the reload is not this lap: the flag is down");
         }
 
-        // a pit lap is only ever found in the pit lane or under the flag (the game keeps it up from
-        // the pit exit to the line): a pit record on a clean lap on the track is another lap's
-        if (same && kept.pit === true && kept.cut !== true && !m.rawInvalid && m.inPits !== true) {
-            same = false;
-            log("the pit lap remembered from before the reload is not this lap: on the track with the flag down");
-        }
+        // (a pit record of this lap is kept even when the car is found on the track with the flag down:
+        // a reload between the pit exit and the flag rising a moment later lands exactly there, and
+        // dropping the pit lane then read the pit exit's flag as a cut; sixth round. Kept, the worst it
+        // can do is quieten a real cut on a lap that shares a number with an out-lap: a tag missing)
 
         // a cut lap that never saw the pit lane cannot be found in the pit lane after a reload
         // without a teleport (a reset to the pits): that lap is over, whatever the clock says
@@ -1752,13 +1861,35 @@ const BetterDeltaBar = (function () {
             log("the cut lap remembered from before the reload is over: the car is back in the pit lane");
         }
 
+        // a lap refused here as over, cut with no reason yet: the lap just before (the line crossed while no
+        // lap was followed), or the same lap number found over (back in the pit lane, the clock behind its
+        // mark). newLap never ran for it, so its debt comes with it, whatever the numbers: a debt can only
+        // swallow a verdict, never paint one (fifth pass fifth round; seventh round for the same number).
+        // Same car and session when both are known, as for a restore
+        if (!same && owesVerdict(kept, m)) {
+            state.verdictOwed = true;
+            log("the lap before, remembered cut with no verdict yet, owes it: the next verdict is that lap's");
+        }
+
+        if (!same && owesHiddenVerdict(kept, m)) {
+            state.hiddenOwed = true;
+            log("the lap before, remembered as an out-lap that may have hidden a cut, owes a verdict that would mark a lap with no cut of its own");
+        }
+
         if (same) {
             // the record adds to what this lap has gathered meanwhile (a notice, the pit lane, while
             // the record waited for the count) and never takes it away; the one exception is a cut
             // from the flag alone on a lap the record knows as a pit lap: that rise was the pit exit
+            // (a verdict arriving while the record waited is held, not judged, so a cut with a reason here
+            // came from a notice that names this lap)
             state.lapCut = kept.cut === true || (state.lapCut && (state.cutReason !== "" || kept.pit !== true));
             state.cutReason = state.lapCut ? (state.cutReason !== "" ? state.cutReason : (typeof kept.reason === "string" ? kept.reason : "")) : "";
             state.pitLap = state.pitLap || kept.pit === true;
+            state.pitLate = state.pitLate || kept.pitLate === true;
+            state.trackSeen = state.trackSeen || kept.track === true;
+            state.verdictOwed = state.verdictOwed || kept.owed === true;
+            state.hiddenCut = state.hiddenCut || kept.hidden === true;
+            state.hiddenOwed = state.hiddenOwed || kept.hiddenOwed === true;
             state.nextLapInvalid = state.nextLapInvalid || kept.next === true;
             state.nextLapReason = state.nextLapInvalid ? (state.nextLapReason !== "" ? state.nextLapReason : (typeof kept.nextReason === "string" ? kept.nextReason : "")) : "";
             log("remembered from before the reload, still this lap: cut " + state.lapCut + (state.cutReason ? " (" + state.cutReason + ")" : "")
@@ -1835,6 +1966,69 @@ const BetterDeltaBar = (function () {
         if (!sent) { state.penaltyPolling = false; }
     };
 
+    /** The game's verdict (NO GAIN, a penalty for a cut) for our car, judged against the lap being followed. */
+    const judgeVerdict = function (state, penalty) {
+        if (state.verdictOwed) {
+            // the lap before ended cut with no reason: this is its verdict, arriving on the lap that
+            // followed (begun in the pit lane with the flag still up, say, where nothing else could
+            // tell it from a verdict on this lap; fifth pass, fourth round). Taken as owed, painted nowhere
+            state.verdictOwed = false;
+            rememberLap(state);
+            log("the verdict (" + penalty.type + ", " + penalty.reason + ") owed by the lap before: not this lap's");
+        } else if (state.lapCut) {
+            if (state.cutReason === "") {
+                state.cutReason = reasonText(penalty.reason);
+                rememberLap(state);
+                log("the verdict arrived " + (state.lastFrameAt - state.cutAt) + " ms after the flag: " + state.cutReason);
+            }
+        } else if (state.pitLap && state.pitLate) {
+            // an in-lap: the car was on the track when the lap began and came into the pit lane
+            // since, which is what raised the flag. A cut on this lap would have raised it on the
+            // track first and be on record; this verdict is the lap before's, arriving late (a race's
+            // NO GAIN comes 4 to 10 s after the flag: a last-corner cut and a pit entry; fifth pass).
+            // Judged on the pit lane's timing alone, not on how the lap started: after a reload on
+            // the in-lap the first frame finds the flag up and cannot tell, but the record can
+            log("a verdict (" + penalty.type + ", " + penalty.reason + ") on an in-lap whose flag is the pit entry's: the lap it is about is over");
+        } else if (!state.trackSeen) {
+            // the car has not been on the track this lap (in the box, on its way out): no cut can have happened
+            // on it, so the verdict is an older lap's, whatever the debts say (eighth round)
+            log("a verdict (" + penalty.type + ", " + penalty.reason + ") on a lap the car has not been on the track on: not this lap's");
+        } else if (state.lastRawInvalid && !(state.lapStartedInvalid && (!state.lapClockSeen || state.lapMs === null || state.lapMs < LAP_START_GRACE_MS))) {
+            // the flag is up but was not a cut's: the pit exit's on a pit lap (OUTLAP), or up since the lap began. The
+            // game now says this lap had a cut (Road Atlanta 2026-09-23 01:18:24, a NO GAIN on the out-lap), and a cut
+            // wins over the quiet tag: the lap is void for a reason the driver should see. Not inside the first moments
+            // of a lap the flag has not yet been seen down on: that flag is the lap before's, still standing across the
+            // line (the two models tick apart), and so is the verdict
+            if (state.hiddenOwed) {
+                // unless the lap before was an out-lap that may have hidden a cut under its own flag: then this
+                // verdict, which would mark a lap with no cut of its own, is that lap's
+                state.hiddenOwed = false;
+                rememberLap(state);
+                log("the verdict (" + penalty.type + ", " + penalty.reason + ") owed by the out-lap before, which may have hidden a cut: not this lap's");
+            } else {
+                markCut(state, reasonText(penalty.reason));
+                log("the verdict on a lap flagged " + (state.pitLap ? "at the pit exit" : "from its start") + ": a cut after all, " + state.cutReason);
+            }
+        } else {
+            log("a verdict (" + penalty.type + ", " + penalty.reason + ") with no flag of this lap's up: the lap it is about is over, or the game did not void it");
+        }
+    };
+
+    /** A verdict held while the record waited for its count, judged now that it is settled; one that can no longer be placed is let go. */
+    const settleHeldVerdict = function (state, placeable) {
+        const penalty = state.heldVerdict;
+
+        if (!penalty) { return; }
+
+        state.heldVerdict = null;
+
+        if (placeable) {
+            judgeVerdict(state, penalty);
+        } else {
+            log("the verdict held for the remembered lap is let go: that lap is no longer being followed");
+        }
+    };
+
     /** A UI notification from the game: a lap invalidation for our car marks this lap cut. */
     const onNotification = function (state, message) {
         if (state.detached) { return; }   // the hook is cleared at detach; should one slip through, it is nobody's lap
@@ -1871,24 +2065,16 @@ const BetterDeltaBar = (function () {
             rememberLap(state);
         }
 
-        // the game's verdict on this lap (a race's NO GAIN, or a penalty for a cut) names the flag that rose before it
+        // the game's verdict on this lap (a race's NO GAIN, or a penalty for a cut) names the flag that rose before it.
+        // While the remembered lap waits for its count, which lap this is cannot be told yet: the verdict is held
+        // and judged once the record is settled (fifth pass, fifth round: judged at once, it was pinned on the
+        // lap the record then showed owed it to the lap before)
         if (which === "" && isOwnCar(penalty) && isLapVerdict(penalty)) {
-            if (state.lapCut) {
-                if (state.cutReason === "") {
-                    state.cutReason = reasonText(penalty.reason);
-                    rememberLap(state);
-                    log("the verdict arrived " + (state.lastFrameAt - state.cutAt) + " ms after the flag: " + state.cutReason);
-                }
-            } else if (state.lastRawInvalid && !(state.lapStartedInvalid && (!state.lapClockSeen || state.lapMs === null || state.lapMs < LAP_START_GRACE_MS))) {
-                // the flag is up but was not a cut's: the pit exit's on a pit lap (OUTLAP), or up since the lap began. The
-                // game now says this lap had a cut (Road Atlanta 2026-09-23 01:18:24, a NO GAIN on the out-lap), and a cut
-                // wins over the quiet tag: the lap is void for a reason the driver should see. Not inside the first moments
-                // of a lap the flag has not yet been seen down on: that flag is the lap before's, still standing across the
-                // line (the two models tick apart), and so is the verdict
-                markCut(state, reasonText(penalty.reason));
-                log("the verdict on a lap flagged " + (state.pitLap ? "at the pit exit" : "from its start") + ": a cut after all, " + state.cutReason);
+            if (state.restorePending) {
+                state.heldVerdict = penalty;
+                log("a verdict (" + penalty.type + ", " + penalty.reason + ") while the remembered lap waits for its count: held until it is settled");
             } else {
-                log("a verdict (" + penalty.type + ", " + penalty.reason + ") with no flag of this lap's up: the lap it is about is over, or the game did not void it");
+                judgeVerdict(state, penalty);
             }
         }
     };
@@ -1909,6 +2095,15 @@ const BetterDeltaBar = (function () {
         if (state.hasDriver !== false) { state.hasDriver = false; setClass(state.root, CLASS.hasDriver, false); }
 
         if (state.topOn !== false) { state.topOn = false; setClass(state.root, CLASS.topOn, false); }
+
+        // the last car's prediction, and its colour, are not this moment's (second review, 2026-09-24)
+        if (state.lastPred !== NO_TIME_TEXT) { state.lastPred = NO_TIME_TEXT; state.predTime.textContent = NO_TIME_TEXT; }
+
+        if (state.predState !== PRED_EVEN) {
+            state.predState = PRED_EVEN;
+            setClass(state.predCell, CLASS.predFaster, false);
+            setClass(state.predCell, CLASS.predSlower, false);
+        }
     };
 
     /** Everything on screen, from the state and this frame's model. */
@@ -1928,6 +2123,10 @@ const BetterDeltaBar = (function () {
 
         if (!m) {
             resetTrend(state);
+            // the bar too: the last car's figure, fill and trend colour left standing read as
+            // live (review 2026-09-23); with no car there is no reference, and the trend is flat
+            renderTrend(state);
+            renderDelta(state, null);
             renderNoCar(state);
 
             // the lap the widget was following ends here: the car that comes back may be on any
@@ -1938,12 +2137,14 @@ const BetterDeltaBar = (function () {
                 forgetLap(state);
                 state.nextLapInvalid = false;
                 state.nextLapReason = "";
+                state.heldVerdict = null;
                 // the identity too: a count or a car id kept from before would make the one the car
                 // comes back with look like a boundary a frame after it joined (a late count on the
                 // return frame turned a cut on the new lap into a forgotten one)
                 state.lapMs = null;
                 state.lapCount = null;
                 state.lapClockSeen = false;
+                state.boundaryClock = null;
                 state.carId = "";
                 // until a lap is joined again, a flag found up is taken as found and not as a cut:
                 // the lap that flag belongs to is over (fuzzing found the tag painted from the old
@@ -1977,7 +2178,14 @@ const BetterDeltaBar = (function () {
         // and suppressing it would carry one car's cut onto another's lap
         const clockNow = m.lapMs !== null ? m.lapMs : state.lapMs;
         const justStarted = clockNow !== null && clockNow < LAP_START_GRACE_MS;
-        const lapWrapped = !firstFrame && (clockWrapped || carChanged || (countMoved && !justStarted));
+        // the count moving within the first moments AFTER the clock's boundary is that boundary too:
+        // a clock that landed past the grace (a stall over the line) with the count a frame or two
+        // behind it would otherwise make a second lap and throw away what the first gathered (fifth
+        // pass, 2026-09-23). Measured on the lap clock, as the grace is; a count a frame AHEAD of the
+        // clock is still two boundaries (never seen: the two have moved together in every measurement)
+        const justWrapped = state.boundaryClock !== null && clockNow !== null && clockNow >= state.boundaryClock
+            && clockNow - state.boundaryClock < LAP_START_GRACE_MS;
+        const lapWrapped = !firstFrame && (clockWrapped || carChanged || (countMoved && !justStarted && !justWrapped));
 
         // the first frame waits for a lap clock: the record can only be matched against one, and a
         // frame without it must not be the one that throws the record away. The screen does not
@@ -2024,12 +2232,54 @@ const BetterDeltaBar = (function () {
             restoreLap(state, m);
             log("first frame: " + timingText(state, m));
         } else if (lapWrapped) {
+            // a boundary before the record waiting for its count was settled: the lap that ended is the one
+            // the record was about, never merged, so if it was cut with no verdict yet the debt is taken
+            // here, as a refusal takes it (sixth round: the record was forgotten with the debt in it)
+            // A debt the record merely carries (not the ended lap's own cut) passes on only if the ended lap never
+            // reached the track, as newLap passes one on; the record cannot say so, since it is not written while
+            // it waits, so the lap's own trackSeen decides (review, 2026-09-24)
+            const pendingRecord = state.restorePending && !carChanged ? me.recall(LAP_KEY, null) : null;
+            const pendingDebt = pendingRecord !== null && owesVerdict(pendingRecord, m) && (pendingRecord.cut === true || !state.trackSeen);
+            const pendingHidden = pendingRecord !== null && owesHiddenVerdict(pendingRecord, m) && (pendingRecord.hidden === true || !state.trackSeen);
+            // a verdict held for the record came before the line: it was the ended lap's, so it pays that lap's debt
+            const heldPays = state.heldVerdict !== null;
+
             state.restorePending = false;
+            settleHeldVerdict(state, false);
             state.lapClockSeen = m.lapMs !== null;
-            newLap(state);
+            state.boundaryClock = m.lapMs;
+
+            // an invalidation the game announced for our car's next lap is our car's: the lap another
+            // car under focus is on is not that lap (fifth pass, 2026-09-23: it was applied to any
+            // boundary, and painted a pit-exit lap of the car spectated red with our reason)
+            if (carChanged && state.nextLapInvalid) {
+                state.nextLapInvalid = false;
+                state.nextLapReason = "";
+                log("the invalidation announced for the next lap is dropped: another car is under focus");
+            }
+
+            newLap(state, carChanged);
+
+            if (pendingDebt && !state.verdictOwed && heldPays) {
+                log("the lap that ended while its record waited owed a verdict, and the one held for it paid it");
+            } else if (pendingDebt && !state.verdictOwed) {
+                state.verdictOwed = true;
+                rememberLap(state);
+                log("the lap that ended while its record waited, cut with no verdict yet, owes it");
+            }
+
+            if (pendingHidden && !state.hiddenOwed) {
+                state.hiddenOwed = true;
+                rememberLap(state);
+                log("the lap that ended while its record waited may have hidden a cut: it owes the weaker debt");
+            }
             // assumed up until the first moments show otherwise; when the first frame of the lap is
             // already past those moments (a stall over the line), the flag as found is the lap's start
-            state.lapStartedInvalid = m.lapMs !== null && m.lapMs >= LAP_START_GRACE_MS ? m.rawInvalid : true;
+            // Another car under focus: the timing model may still be the old car's on this frame, so its flag says
+            // nothing about the new car's lap, which is taken as flagged from its start (a red missing, never a red
+            // wrong: a lagging model showed the old car's clean flag, and the new car's pit exit then rose red;
+            // second review, 2026-09-24)
+            state.lapStartedInvalid = !carChanged && m.lapMs !== null && m.lapMs >= LAP_START_GRACE_MS ? m.rawInvalid : true;
             log("new lap" + (carChanged ? " (another car under focus)" : (countMoved && !clockWrapped ? " (the lap count moved)" : "")) + ": " + timingText(state, m));
         }
 
@@ -2041,7 +2291,10 @@ const BetterDeltaBar = (function () {
         }
 
         // a record left waiting for the lap count is judged on the first frame that has it
-        if (state.restorePending && !firstFrame && !lapWrapped && m.lapCount !== null) { restoreLap(state, m); }
+        if (state.restorePending && !firstFrame && !lapWrapped && m.lapCount !== null) {
+            restoreLap(state, m);
+            settleHeldVerdict(state, true);
+        }
 
         // the count this lap is filed under, first known or newly moved (the grace let it arrive a
         // frame after the clock), or the lap's own clock arriving after a boundary the count made:
@@ -2049,9 +2302,31 @@ const BetterDeltaBar = (function () {
         // does not keep that stamp (which any later frame of any lap would clear) for the whole lap
         if ((countChanged || clockArrived) && !firstFrame && !lapWrapped) { rememberLap(state); }
 
+        // the car on the track: this lap reached it
+        if (m.onTrack && !state.trackSeen) {
+            state.trackSeen = true;
+
+            // a lap carrying a debt records that it reached the track: a refused record then passes the debt on no further
+            if (state.verdictOwed || state.hiddenOwed) { rememberLap(state); }
+        }
+
+        // only after the pit lane was seen first this lap (an out-lap past its exit): the flag rising at a pit
+        // entry, or the lap before's flag standing across the line, meets the car still reading Track for a
+        // frame, and neither hides a cut (the recorded Road Atlanta race lost its out-lap verdict otherwise)
+        if (m.onTrack && m.rawInvalid && state.pitLap && !state.pitLate && !state.lapCut && !state.hiddenCut) {
+            state.hiddenCut = true;
+            // kept in the record, so a reload or a spell without the car cannot lose it (tenth round)
+            rememberLap(state);
+        }
+
         // the car in the pit lane: this lap has the pit lane in it, whatever the flag does later
         if (m.inPits === true && !state.pitLap) {
             state.pitLap = true;
+            // the car was out on the track earlier this lap and has come in (an in-lap): the flag that
+            // rises with the pit lane is the pit entry's and a verdict arriving now is the lap before's.
+            // Where the car was, not the clock: a stall over a line that lies inside the pit lane
+            // lands the out-lap's first frame past the grace with the car still in the pit lane
+            state.pitLate = state.trackSeen;
             rememberLap(state);
             log("in the pit lane: a pit lap; " + timingText(state, m));
         }
@@ -2189,6 +2464,8 @@ const BetterDeltaBar = (function () {
             }
         } catch (e) {
             release(state);
+            // as after detach: an engine answer or a notice that still reaches this state is nobody's
+            state.detached = true;
             throw e;
         }
 

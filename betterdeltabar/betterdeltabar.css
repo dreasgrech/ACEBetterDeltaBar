@@ -24,6 +24,8 @@
  *                 .bd-faster / .bd-slower (the overall sign), .bd-noref (no reference lap),
  *                 .bd-invalid, .bd-pit, .bd-hasdriver, .bd-top-on (the top line has something to say);
  *                 .bd-pred-faster / .bd-pred-slower on the predicted cell
+ *   on a new figure  one of .bd-lean-n7 ... .bd-lean-4 (how far the point sits from the middle of
+ *                 the figure's text, in half glyphs; see LEAN_CLASSES in the script)
  *   options       .bd-compact; .bd-faster-left (the bar grows left for time gained, and the
  *                 chevrons follow); .bd-noarrows .bd-nooptimal .bd-nobest .bd-nolast .bd-nopred
  *                 .bd-notrace .bd-noinvalid .bd-hide-noref; .bd-narrow / .bd-wide;
@@ -467,13 +469,31 @@ body.hide-hud .ace-betterdeltabar {
     text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
 }
 
-/* the strong-trend glow carries two classes more than those, so under either option it is
+/* the strong-trend glow carries one class more than those, so under either option it is
    put back to the plain shadow here, and only the shadow: the colour stays the option's */
 .ace-betterdeltabar.bd-num-overall.bd-strong.bd-gain .bd-delta,
 .ace-betterdeltabar.bd-num-overall.bd-strong.bd-lose .bd-delta,
 .ace-betterdeltabar.bd-num-white.bd-strong.bd-gain .bd-delta,
 .ace-betterdeltabar.bd-num-white.bd-strong.bd-lose .bd-delta {
     text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.8);
+}
+
+/* the compact tag has a background of its own and no shadow (below); the rule above outranks
+   that, so under either colour option a shadow came and went with the strong trend (cascade
+   review, 2026-09-23). None here, in every trend state; with no background the compact figure
+   keeps its own shadow, as in every other state */
+.ace-betterdeltabar.bd-compact.bd-num-overall.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-num-overall.bd-strong.bd-lose .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-num-white.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-num-white.bd-strong.bd-lose .bd-delta {
+    text-shadow: none;
+}
+
+.ace-betterdeltabar.bd-compact.bd-bg-none.bd-num-overall.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-bg-none.bd-num-overall.bd-strong.bd-lose .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-bg-none.bd-num-white.bd-strong.bd-gain .bd-delta,
+.ace-betterdeltabar.bd-compact.bd-bg-none.bd-num-white.bd-strong.bd-lose .bd-delta {
+    text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.9);
 }
 
 .ace-betterdeltabar.bd-num-overall.bd-faster .bd-delta {

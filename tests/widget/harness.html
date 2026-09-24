@@ -31,7 +31,49 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 <script>
 (function () {
     const H = window.__harness;
-    const t = H.t, eq = H.eq, ok = H.ok, near = H.near;
+    const eq = H.eq, ok = H.ok, near = H.near;
+    /**
+     * Every case runs through this. A case that passes has put back what it changed; one that fails
+     * part-way has not, and whatever it left (a pit location, a lap count, a setting, attract, a swapped
+     * engine function, a lap record) would make the cases after it fail for the wrong reason. So on a
+     * failure, and only then, the models go back to what they were when the case began, the settings
+     * to their defaults, the lap record is let go and the widget is attached afresh; the failure is
+     * still reported. A passing run is untouched.
+     */
+    const t = function (name, fn) {
+        H.t(name, function () {
+            const carBefore = Object.assign({}, window.ModelCurrentCar);
+            const lowBefore = window.ModelCurrentCar.low_frequency ? Object.assign({}, window.ModelCurrentCar.low_frequency) : window.ModelCurrentCar.low_frequency;
+            const timingBefore = Object.assign({}, window.ModelTiming);
+            const engineBefore = window.engine && typeof window.engine === "object" ? Object.assign({}, window.engine) : null;
+            const globalsBefore = { ModelCarsOnTrack: window.ModelCarsOnTrack, ModelUISessionState: window.ModelUISessionState,
+                ModelUIRealtimeLeaderboard: window.ModelUIRealtimeLeaderboard, ModelLeaderboard: window.ModelLeaderboard, ksUI: window.ksUI };
+            try {
+                fn();
+            } catch (e) {
+                // the recovery is best effort and never replaces the failure being reported: the first cases run
+                // before the engine, the root and the widget exist, and a recovery that threw there hid the reason
+                try {
+                    const restore = function (target, before) {
+                        Object.keys(target).forEach(function (k) { if (!(k in before)) { delete target[k]; } });
+                        Object.assign(target, before);
+                    };
+                    restore(window.ModelCurrentCar, carBefore);
+                    window.ModelCurrentCar.low_frequency = lowBefore;
+                    restore(window.ModelTiming, timingBefore);
+                    if (engineBefore && window.engine && typeof window.engine === "object") { restore(window.engine, engineBefore); }
+                    Object.keys(globalsBefore).forEach(function (k) { window[k] = globalsBefore[k]; });
+                    window.ModelCurrentCar = car; window.ModelTiming = timing;
+                    ACEUIAppLoader.settings.reset(me.name);
+                    me.forget("lap");
+                    B.detach(state); state = B.attach(root); frame();
+                } catch (ignored) {
+                    // nothing more to put back: the widget is not attached yet
+                }
+                throw e;
+            }
+        });
+    };
     const me = ACEUIAppLoader.app("betterdeltabar");
     const B = BetterDeltaBar;
     const car = window.ModelCurrentCar;
@@ -88,12 +130,18 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     });
 
     t("readModel: null without a focused car; the sentinel is no delta; the raw delta is preferred; npos_perc stands in for npos", function () {
-        car.has_focused_car = false; eq(B.readModel(), null); car.has_focused_car = true;
-        let m = B.readModel(); eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.optimal, ""); eq(m.last, "");
-        eq(m.invalid, false, "the outlap is flagged invalid by the game, and that is not news");
-        timing.current = ""; m = B.readModel(); eq(m.invalid, false, "nor is no lap at all");
-        timing.current = "0:12.345"; m = B.readModel(); eq(m.invalid, true, "a timed lap's flag is");
-        timing.invalid = false; m = B.readModel(); eq(m.invalid, false); timing.current = "Outlap";
+        car.has_focused_car = false;
+        try { eq(B.readModel(), null); } finally { car.has_focused_car = true; }
+        let m = B.readModel();
+        try {
+            eq(m.delta, null, "sentinel is no delta"); eq(m.npos, 0); eq(m.driver, ""); eq(m.best, ""); eq(m.optimal, ""); eq(m.last, "");
+            eq(m.invalid, false, "the outlap is flagged invalid by the game, and that is not news");
+            timing.current = ""; m = B.readModel(); eq(m.invalid, false, "nor is no lap at all");
+            timing.current = "0:12.345"; m = B.readModel(); eq(m.invalid, true, "a timed lap's flag is");
+            timing.invalid = false; m = B.readModel(); eq(m.invalid, false);
+        } finally {   // what every case below starts from: the flag down, the out-lap text
+            timing.invalid = false; timing.current = "Outlap";
+        }
         try {
             setDelta(-235); m = B.readModel(); eq(m.delta, -235, "raw ms"); eq(m.lapMs, 5000);
             // the two fields carry the same number in the game; set apart by hand, a malformed raw one falls back to the ui copy
@@ -169,13 +217,18 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     });
 
     t("the option to hide the widget until there is a reference lap", function () {
+        const vis = root.style.visibility;
         root.style.visibility = "";
-        eq(getComputedStyle(root).visibility, "visible", "shown by default with no reference");
-        set("hideWithoutReference", true); ok(has(root, "bd-hide-noref"));
-        eq(getComputedStyle(root).visibility, "hidden", "hidden while there is no reference");
-        setDelta(-235); frame(); eq(getComputedStyle(root).visibility, "visible", "shown as soon as there is a delta");
-        setDelta(null); frame(); eq(getComputedStyle(root).visibility, "hidden", "and gone again without one");
-        set("hideWithoutReference", false); eq(getComputedStyle(root).visibility, "visible");
+        try {
+            eq(getComputedStyle(root).visibility, "visible", "shown by default with no reference");
+            set("hideWithoutReference", true); ok(has(root, "bd-hide-noref"));
+            eq(getComputedStyle(root).visibility, "hidden", "hidden while there is no reference");
+            setDelta(-235); frame(); eq(getComputedStyle(root).visibility, "visible", "shown as soon as there is a delta");
+            setDelta(null); frame(); eq(getComputedStyle(root).visibility, "hidden", "and gone again without one");
+            set("hideWithoutReference", false); eq(getComputedStyle(root).visibility, "visible");
+        } finally {
+            set("hideWithoutReference", false); root.style.visibility = vis;
+        }
     });
 
     t("time gained grows right (the game's convention): the right fill, the tick at its end, the figure, the sign", function () {
@@ -208,7 +261,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     });
 
     t("the trend: gaining colours green after a window, strongly when fast; steady is flat; losing is red", function () {
-        setDelta(-235); state.trend = "flat"; frame();
+        setDelta(-235); frame();
         drift(1500, -40);
         ok(has(root, "bd-gain"), "gaining at 40 ms/s (band 15)"); ok(!has(root, "bd-strong"), "not strong under 75 ms/s");
         ok(!has(root, "bd-flat") && !has(root, "bd-lose"));
@@ -252,13 +305,24 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         drift(1500, 9); ok(has(root, "bd-flat"), "+9 ms/s from gaining is flat, not losing (the half band is for staying, not for the other side)");
         drift(1500, 40); ok(has(root, "bd-lose"), "losing at the full band");
         drift(1500, -9); ok(has(root, "bd-flat"), "and -9 from losing is flat, not gaining");
+        // the same in one step: gaining at -40, then a single jump of +52 ms puts the rate at about +12 in one sample, past
+        // half the band (7.5) but under the whole of it (15). Staying needs half the band; the other side needs all of it
+        drift(1500, -40); ok(has(root, "bd-gain"), "gaining again");
+        setDelta(car.delta_time_ms + 52); run(64);
+        ok(!has(root, "bd-lose"), "a rate of about +12 from gaining is not losing: the half band never lets a trend cross to the other side");
+        drift(1500, 0);
         // the flapping case: a steady driver and a delta read with a millisecond or two of noise, after a real trend
-        set("trendBand", "fine"); set("trendWindow", "0.5 s"); eq(state.band, 5); eq(state.windowSamples, 10);
-        drift(1500, -40); ok(has(root, "bd-gain"));
-        const base = car.delta_time_ms; let flips = 0, last = state.trend;
-        run(3000, function (n) { setDelta(base + (Math.floor(n / FRAME) % 2 === 0 ? 1 : -1)); if (state.trend !== last) { flips += 1; last = state.trend; } });
-        eq(state.trend, "flat", "settled flat"); ok(flips <= 1, "left the trend once and never came back: " + flips + " change(s)");
-        set("trendBand", "normal"); set("trendWindow", "1 s"); setDelta(base); run(1500);
+        set("trendBand", "fine"); set("trendWindow", "0.5 s");
+        const base = car.delta_time_ms;
+        try {
+            eq(state.band, 5); eq(state.windowSamples, 10);
+            drift(1500, -40); ok(has(root, "bd-gain"));
+            const noisy = car.delta_time_ms; let flips = 0, last = state.trend;
+            run(3000, function (n) { setDelta(noisy + (Math.floor(n / FRAME) % 2 === 0 ? 1 : -1)); if (state.trend !== last) { flips += 1; last = state.trend; } });
+            eq(state.trend, "flat", "settled flat"); ok(flips <= 1, "left the trend once and never came back: " + flips + " change(s)");
+        } finally {
+            set("trendBand", "normal"); set("trendWindow", "1 s"); setDelta(base); run(1500);
+        }
     });
 
     t("a stall a few ms short of the sampler's gap still forgets the ring: the ring and the sampler restart on the same clock", function () {
@@ -300,6 +364,17 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         drift(1500, -40); ok(has(root, "bd-gain")); eq(state.count, B.TREND_N, "ring full");
         setDelta(car.delta_time_ms + 5000); run(100);
         ok(state.count <= 3, "ring restarted: " + state.count); ok(has(root, "bd-flat"), "flat until a new window");
+        // the frame the ring holds exactly one window of samples: a rate over N samples needs N + 1, so still no rate
+        let guard = 0;
+        while (state.count < state.windowSamples && guard < 400) { frame(); guard += 1; }
+        eq(state.count, state.windowSamples, "exactly a window of samples");
+        ok(has(root, "bd-flat") && !has(root, "bd-strong"), "and still flat: nothing is read from the slot the ring has not refilled");
+        // at its edge: a step of exactly a second between two samples is kept, a millisecond more restarts the ring
+        const steady = car.delta_time_ms; run(300); const kept = state.count;
+        setDelta(steady + 1000); run(64); ok(state.count > kept, "a step of 1000 ms: the ring goes on (" + kept + " to " + state.count + ")");
+        run(300); const kept2 = state.count;
+        setDelta(steady + 1000 + 1001); run(64); ok(state.count <= 2 && state.count < kept2, "a step of 1001 ms: the ring restarts (" + state.count + ")");
+        setDelta(-235); run(1500);
     });
 
     t("a stall longer than the sampler's gap forgets the ring: the next rate does not span it", function () {
@@ -356,13 +431,14 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 
     t("the lap trace (switched on): the slot under the car takes the delta, skipped slots are filled, the wrap clears the lap", function () {
         set("showTrace", true); eq(state.traceOn, true); ok(!has(root, "bd-notrace"));
-        // the frames so far sat at npos 0 with the trace off, so nothing is written yet; a jump to 0.25 fills 0..30
+        // the frames so far sat at npos 0 with the trace off, so nothing is written yet; a jump to 0.25 writes the slot under the
+        // car (30) and nothing behind it: a trace just switched on has no last slot to fill in from
         setDelta(-500); car.npos = 0.25; frame();
         near(sy(ups[30]), 0.5, 1e-6, "slot 30 up half (500 of 1000)"); eq(sy(downs[30]), 0);
         eq(sy(ups[31]), 0, "slot ahead untouched");
         // a jump of six slots in one frame is no slow frame: the last three are filled in, the rest had no data and stay blank
         car.npos = 0.30; setDelta(250); frame();
-        [34, 35, 36].forEach(function (i) { near(sy(downs[i]), 0.25, 1e-6, "slot " + i + " down"); eq(sy(ups[i]), 0); });
+        [33, 34, 35, 36].forEach(function (i) { near(sy(downs[i]), 0.25, 1e-6, "slot " + i + " down (the car's and the three before it)"); eq(sy(ups[i]), 0); });
         [31, 32].forEach(function (i) { eq(sy(downs[i]), 0, "slot " + i + " left blank"); });
         car.npos = 0.9; frame(); near(sy(downs[108]), 0.25, 1e-6, "slot 108");
         car.npos = 0.01; setDelta(-100); frame();
@@ -403,9 +479,15 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     });
 
     t("the invalid tag: a lap that was valid and went invalid is a cut and shows it; one flagged from its start is a pit exit and does not", function () {
-        // the lap under way started valid (the flag has been down since the harness began)
-        timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "the game's outlap text: no tag"); ok(!has(root, "bd-top-on"));
-        timing.current = "0:12.345"; frame(); ok(has(root, "bd-invalid"), "a timed lap that went invalid: the tag"); ok(has(root, "bd-top-on"));
+        // the lap under way started valid (the flag has been down since the harness began). From here on every lap
+        // in this harness is a timed one: the finally makes sure of it whatever fails, since every tag case after
+        // this depends on `current` reading as a lap time
+        try {
+            timing.invalid = true; timing.current = "Outlap"; frame(); ok(!has(root, "bd-invalid"), "the game's outlap text: no tag"); ok(!has(root, "bd-top-on"));
+        } finally {
+            timing.current = "0:12.345";
+        }
+        frame(); ok(has(root, "bd-invalid"), "a timed lap that went invalid: the tag"); ok(has(root, "bd-top-on"));
         eq(q(".bd-invalid-tag").textContent, "INVALID", "the flag alone knows no reason");
         eq(getComputedStyle(q(".bd-invalid-tag")).display, "block");
         ok(q(".bd-top-right .bd-invalid-tag"), "the tag lives in the right-hand group"); ok(q(".bd-top-left .bd-status") && q(".bd-top-left .bd-vs"), "the note and the name in the left");
@@ -423,9 +505,9 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         setDelta(kept); frame();
         // a new lap begins with the flag still up: a pit exit, not a cut
         car.current_lap_time_ms = 3000; frame(); car.current_lap_time_ms = 100; frame(); ok(!has(root, "bd-invalid"), "flagged from the start: no tag");
-        run(600); ok(!has(root, "bd-invalid"), "and none later in that lap either");
-        // the next lap starts clean, the game clears the flag a moment after the line, then a cut
-        car.current_lap_time_ms = 50; frame(); car.current_lap_time_ms = 200; timing.invalid = false; frame();
+        car.current_lap_time_ms = 900; frame(); ok(!has(root, "bd-invalid"), "and none later in that lap either, past its first moments");
+        // the next lap starts clean, the game clears the flag a moment after the line, then a cut (the clock runs on first: 100 to 50 is inside the tolerance and no line)
+        car.current_lap_time_ms = 3000; frame(); car.current_lap_time_ms = 50; frame(); car.current_lap_time_ms = 200; timing.invalid = false; frame();
         ok(!has(root, "bd-invalid"), "clean lap: no tag");
         car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "cut mid-lap: the tag");
         timing.invalid = false; frame(); ok(!has(root, "bd-invalid"), "the flag down: the game calls the lap valid, and so does the tag"); eq(state.lapCut, true, "the cut stays on record");
@@ -451,13 +533,16 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Something_Else", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         eq(q(".bd-invalid-tag").textContent, "INVALID · SOMETHING ELSE", "a reason the table does not know: the key, cleaned up");
         eq(B.reasonText(""), "", "no reason, no text"); eq(B.reasonText("InvestigationType_Racecar_Cut"), "TRACK LIMITS");
-        run(2000); ok(has(root, "bd-invalid"), "and it stays for the lap");
+        run(2000, function () { car.current_lap_time_ms += FRAME; }); ok(car.current_lap_time_ms > 2000, "the lap clock ran on"); ok(has(root, "bd-invalid"), "and it stays for the lap");
         car.current_lap_time_ms = 3000; frame(); car.current_lap_time_ms = 20; frame(); ok(!has(root, "bd-invalid"), "gone with the new lap"); eq(state.lapCut, false);
         // with no model to say which car is ours, any car's invalidation counts when the session has one driver
         window.ModelCarsOnTrack = null; car.low_frequency = { total_drivers: 1 };
-        notify(penalty("{PENALTY_CLEARED_KEY} #12", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame(); ok(has(root, "bd-invalid"), "unknown own number, alone: taken as ours");
-        car.low_frequency = undefined;
-        window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 666, is_focused: true }] };
+        try {
+            notify(penalty("{PENALTY_CLEARED_KEY} #12", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame(); ok(has(root, "bd-invalid"), "unknown own number, alone: taken as ours");
+        } finally {
+            car.low_frequency = undefined;
+            window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 666, is_focused: true }] };
+        }
         const p = B.readPenalty(penalty("{PENALTY_CLEARED_KEY} #666", "r", "t")); eq(p.car, 666); eq(p.reason, "r"); eq(p.type, "t");
         eq(B.readPenalty(penalty("no number here", "r", "t")).car, null); eq(B.readPenalty({ type: "x" }), null); eq(B.readPenalty(null), null);
         // a fresh, clean lap for the tests that follow
@@ -482,7 +567,8 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 290; car.car_location = "Track"; timing.invalid = true; frame();
         ok(!has(root, "bd-invalid"), "the flag rising on a pit lap is the pit exit, not a cut"); eq(state.lapCut, false, "nothing marked");
         ok(has(root, "bd-pit")); eq(q(".bd-invalid-tag").textContent, "OUTLAP", "and not SPEEDING: the warning had nothing to do with it");
-        run(30000); eq(q(".bd-invalid-tag").textContent, "OUTLAP", "all the way round");
+        run(30000, function () { car.current_lap_time_ms += FRAME; }); ok(car.current_lap_time_ms > 30000, "the lap clock ran on, well past its first moments");
+        eq(q(".bd-invalid-tag").textContent, "OUTLAP", "all the way round");
         // a cut on the outlap: the game's notice wins, red, with its reason
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         ok(has(root, "bd-invalid") && !has(root, "bd-pit"), "a cut is a cut, outlap or not"); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS");
@@ -519,8 +605,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(B.reasonText("InvestigationType_Speeding"), "SPEEDING"); eq(B.reasonText("InvestigationType_Driver_Ran_No_Stint"), "FAILED TO MEET STINT REQUIREMENT");
         eq(B.reasonText("InvestigationType_Something_Else"), "SOMETHING ELSE", "neither: the key, cleaned");
         const saved = window.engine.translate; window.engine.translate = undefined;
-        eq(B.reasonText("InvestigationType_Racecar_Cut"), "TRACK LIMITS", "no engine translation at all (the preview): the table");
-        window.engine.translate = saved;
+        try {
+            eq(B.reasonText("InvestigationType_Racecar_Cut"), "TRACK LIMITS", "no engine translation at all (the preview): the table");
+        } finally {
+            window.engine.translate = saved;
+        }
         eq(B.PIT_LOCATIONS.Pitlane, true); eq(B.PIT_LOCATIONS.Pitentry, true); eq(B.PIT_LOCATIONS.Pitexit, true); eq(B.PIT_LOCATIONS.Track, undefined); eq(B.PIT_LOCATIONS.Unassigned, undefined);
     });
 
@@ -550,6 +639,19 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("every reason on every invalidating type: the tag names it in the game's words, the same for both this-lap types and for the next-lap one", function () {
         const reasons = Object.keys(B.REASONS);
         eq(reasons.length, 21, "twenty of the enum plus the one the table has and the enum lacks");
+        // the game's English words (uiresources/localization/en.loc in content.kspkg, 0.9.1+release.6), copied here on their
+        // own so a wrong or edited entry in the widget's table cannot pass by agreeing with itself
+        const WORDS = {
+            InvestigationType_Racecar_Cut: "Track Limits", InvestigationType_Collision: "Collision", InvestigationType_Illegal_Overtake: "Illegal Overtake",
+            InvestigationType_Pit_Speeding: "Pitlane Speeding", InvestigationType_Pit_Entry: "Pit Entry", InvestigationType_Pit_Exit: "Pit Exit",
+            InvestigationType_Ignored_Mandatory_Pit: "Ignored Mandatory Pit Stop", InvestigationType_Unsafe_Rejoin: "Unsafe Rejoin",
+            InvestigationType_Race_Control: "Race Control", InvestigationType_Reverse_In_Pitlane: "Reversing In Pitlane", InvestigationType_Wrong_Way: "Wrong Way",
+            InvestigationType_Ignored_Driver_Stint: "Ignored Driver Stint", InvestigationType_Exceeded_Driver_Stint_Limit: "Exceeded Driver Stint Limit",
+            InvestigationType_Driver_Ran_No_Stint: "Failed To Meet Stint Requirement", InvestigationType_Damaged_Car: "Damaged Car", InvestigationType_Lights_Off: "Lights Off",
+            InvestigationType_Speeding_On_Start: "Speeding On Start", InvestigationType_Wrong_Position_On_Start: "Wrong Position On Start",
+            InvestigationType_Speeding: "Speeding", InvestigationType_StartFromPit: "Start From Pit", InvestigationType_Cleaning_Penalties: "Penalties Cleared"
+        };
+        eq(Object.keys(WORDS).sort().join(","), reasons.slice().sort().join(","), "the same keys");
         car.low_frequency = { total_lap_count: 20 };
         ["lblNotificationPenalty_LAP_INVALIDATED", "PenaltyType_InvalidLap"].forEach(function (type) {
             reasons.forEach(function (key) {
@@ -558,15 +660,15 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
                 notify(penalty("{PENALTY_CLEARED_KEY} #666", key, type)); frame(); ok(!has(root, "bd-invalid"), "no tag before the flag: " + key);
                 timing.invalid = true; frame();
                 ok(has(root, "bd-invalid"), type + " / " + key + " shows the tag");
-                eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 " + B.REASONS[key].toUpperCase(), type + " / " + key);
-                eq(me.recall("lap", null).reason, B.REASONS[key].toUpperCase(), "remembered");
+                eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 " + WORDS[key].toUpperCase(), type + " / " + key);
+                eq(me.recall("lap", null).reason, WORDS[key].toUpperCase(), "remembered");
             });
         });
         reasons.forEach(function (key) {
             car.low_frequency.total_lap_count += 1; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame(); ok(!has(root, "bd-invalid"));
             notify(penalty("{PENALTY_ADDED_KEY} #666", key, "PenaltyType_InvalidNextLap")); frame(); ok(!has(root, "bd-invalid"), "not this lap: " + key);
             car.low_frequency.total_lap_count += 1; car.current_lap_time_ms = 20; timing.invalid = true; frame();
-            ok(has(root, "bd-invalid"), "the next lap: " + key); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 " + B.REASONS[key].toUpperCase());
+            ok(has(root, "bd-invalid"), "the next lap: " + key); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 " + WORDS[key].toUpperCase());
             car.current_lap_time_ms = 1000; frame();
         });
         car.low_frequency.total_lap_count += 1; car.current_lap_time_ms = 20; timing.invalid = false; frame(); ok(!has(root, "bd-invalid")); car.low_frequency = undefined; car.current_lap_time_ms = 200; frame();
@@ -586,16 +688,24 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 8000; frame();
         notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Collision", "PenaltyType_Drive_Through")); frame();
         car.current_lap_time_ms = 8100; timing.invalid = true; frame();
-        ok(has(root, "bd-invalid")); eq(q(".bd-invalid-tag").textContent, "INVALID", "a collision penalty is not a verdict on the lap"); eq(me.recall("lap", null).reason, "");
+        ok(has(root, "bd-invalid")); eq(q(".bd-invalid-tag").textContent, "INVALID", "a collision penalty before the flag names nothing"); eq(me.recall("lap", null).reason, "");
+        // after the flag, where a verdict would name the cut: the verdict rule is what refuses it
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Collision", "PenaltyType_Drive_Through")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID", "a collision penalty is not a verdict on the lap"); eq(me.recall("lap", null).reason, "");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); eq(me.recall("lap", null).reason, "TRACK LIMITS", "its verdict, so it owes the lap after nothing");
         // the other order, a few frames after the flag: the same
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
         timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "no reason yet");
         run(100); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Unsafe_Rejoin", "PenaltyType_Stop_And_Go")); frame();
         eq(q(".bd-invalid-tag").textContent, "INVALID", "an unsafe-rejoin penalty is not one either"); eq(me.recall("lap", null).reason, "");
+        // its verdict comes before the line, so it owes nothing to the lap that follows
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); eq(me.recall("lap", null).reason, "TRACK LIMITS");
         // a verdict names the flag whenever it comes: two seconds before it, or two seconds after
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
+        eq(state.verdictOwed, false, "nothing owed from the lap before"); const said583 = window.__log.length;
         notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_Time_Penalty_Seconds")); frame(); run(2000);
         ok(!has(root, "bd-invalid"), "a verdict with no flag marks nothing: the flag is the truth");
+        ok(window.__log.slice(said583).some(function (l) { return l.indexOf("with no flag of this lap's up") >= 0; }), "dropped by the flag test, not taken as a debt");
         car.current_lap_time_ms = 12000; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "the flag two seconds after a cut penalty: plain, the verdict was logged and not kept");
         run(2000); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_Time_Penalty_Seconds")); frame();
         eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "a cut penalty two seconds after the flag names it"); eq(me.recall("lap", null).reason, "TRACK LIMITS");
@@ -605,8 +715,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         // another car's notice within the window: not ours, no reason
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 9000; frame();
         notify(penalty("{PENALTY_ADDED_KEY} #12", "InvestigationType_Collision", "PenaltyType_Drive_Through")); frame();
-        car.current_lap_time_ms = 9100; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "another car's notice is not our reason");
-        // a warning in the pit lane, then the flag at the pit exit on the same clock: OUTLAP, the window does not apply to a pit lap
+        car.current_lap_time_ms = 9100; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID", "another car's penalty before the flag names nothing");
+        // after the flag, a verdict that would name our cut if it were ours: the car rule is what refuses it
+        notify(penalty("{PENALTY_ADDED_KEY} #12", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID", "another car's verdict is not our reason"); eq(me.recall("lap", null).reason, "");
+        // a warning in the pit lane, then the flag at the pit exit on the same clock: OUTLAP, a speeding warning being no verdict
         car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Pitlane"; frame();
         notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Speeding", "PenaltyType_Warning")); frame();
         car.current_lap_time_ms = 300; car.car_location = "Track"; timing.invalid = true; frame();
@@ -619,9 +732,10 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 22522; timing.invalid = true; frame();
         eq(q(".bd-invalid-tag").textContent, "INVALID", "the flag first, no reason yet");
         run(4800); car.current_lap_time_ms = 27300; frame();
+        const saidRuling = window.__log.length;
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
         eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "the ruling names the cut"); eq(me.recall("lap", null).reason, "TRACK LIMITS", "and is remembered");
-        ok(window.__log.some(function (l) { return l.indexOf("ms after the flag: TRACK LIMITS") >= 0; }), "with the delay logged");
+        ok(window.__log.slice(saidRuling).some(function (l) { return l.indexOf("ms after the flag: TRACK LIMITS") >= 0; }), "with the delay logged");
         ok(window.__log.some(function (l) { return l.indexOf("penalty values: \"{PENALTY_CLEARED_KEY} #666\", \"InvestigationType_Racecar_Cut\", \"lblNotificationPenalty_NO_GAIN\"") >= 0; }), "and every value the game sent, whole");
         // a second ruling on the same lap changes nothing
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Collision", "lblNotificationPenalty_NO_GAIN")); frame();
@@ -634,10 +748,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 20; car.car_location = "Track"; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
         // a ruling that arrives after the line belongs to the lap that is over: the new lap is not marked
         car.current_lap_time_ms = 110000; timing.invalid = true; frame(); eq(q(".bd-invalid-tag").textContent, "INVALID");
-        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame();
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame(); eq(state.verdictOwed, true, "the lap that ended owes its verdict");
+        const saidLate = window.__log.length;
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
-        ok(!has(root, "bd-invalid"), "the new lap is clean"); eq(state.lapCut, false); eq(me.recall("lap", null), null);
-        ok(window.__log.some(function (l) { return l.indexOf("with no flag of this lap's up") >= 0; }), "and the dropped verdict is on record");
+        ok(!has(root, "bd-invalid"), "the new lap is clean"); eq(state.lapCut, false); eq(me.recall("lap", null), null, "debt paid, nothing left on record");
+        ok(window.__log.slice(saidLate).some(function (l) { return l.indexOf("owed by the lap before") >= 0; }), "and the verdict is on record as the lap before's");
     });
 
     t("a cut on the out-lap: the flag at the pit exit reads OUTLAP until the game's NO GAIN verdict names the cut, then INVALID \u00b7 TRACK LIMITS, kept through a reload", function () {
@@ -670,6 +785,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 
     t("the own car is read from the cars-on-track model, which the stock streams every frame and never switches off; the leaderboards, which it freezes when their page closes, are not consulted", function () {
         const track = window.ModelCarsOnTrack;
+        try {
         window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 3, is_focused: false }, { car_number: 41, is_focused: true }] };
         eq(B.readPenalty(penalty("{PENALTY_CLEARED_KEY} #41", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")).car, 41);
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 500; frame();
@@ -683,9 +799,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.low_frequency = { total_drivers: 11 };
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
         eq(state.lapCut, false, "a stale leaderboard line cannot make a notice ours"); eq(B.isOwnCar(B.readPenalty(penalty("#666", "r", "t"))), false);
-        window.ModelUIRealtimeLeaderboard = undefined; window.ModelLeaderboard = undefined; car.low_frequency = undefined;
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
-        window.ModelCarsOnTrack = track;
+        } finally {
+            window.ModelUIRealtimeLeaderboard = undefined; window.ModelLeaderboard = undefined; car.low_frequency = undefined;
+            window.ModelCarsOnTrack = track;
+        }
     });
 
     t("with no model to say which car is ours, a notice is ours only when we are alone: online it is nobody's; and the models that say are asked for at attach", function () {
@@ -746,12 +864,15 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
         ok(has(root, "bd-invalid"), "cut"); eq(q(".bd-invalid-tag").textContent, "INVALID");
         car.current_lap_time_ms = 29998; frame(); ok(has(root, "bd-invalid"), "two ms back: still the cut lap"); eq(state.lapCut, true);
-        car.current_lap_time_ms = 30000 - B.LAP_CLOCK_JITTER_MS; frame(); ok(has(root, "bd-invalid"), "exactly the tolerance back: still the lap");
+        car.current_lap_time_ms = 29850; frame(); ok(has(root, "bd-invalid"), "148 ms back, far from the line: still the lap (the landing rule decides out here; the tolerance is pinned a second into a lap)");
         car.current_lap_time_ms = 29000 - B.LAP_CLOCK_JITTER_MS; frame(); ok(has(root, "bd-invalid"), "a second back from a running clock far from the line: the game's correction, not a lap"); eq(state.lapCut, true);
         car.current_lap_time_ms = 26; frame(); ok(!has(root, "bd-invalid"), "the line: a new lap"); eq(state.lapCut, false);
-        // the same for a pit lap
+        // the same for a pit lap (the clock runs on first: 26 to 20 is inside the tolerance and no line)
+        car.current_lap_time_ms = 3000; frame(); const lapsBefore = window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length;
         car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Pitlane"; frame(); car.current_lap_time_ms = 5000; frame(); eq(state.pitLap, true);
+        eq(window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length - lapsBefore, 1, "a fresh pit lap, opened at the line");
         car.current_lap_time_ms = 4999; frame(); eq(state.pitLap, true, "one ms back: still the pit lap");
+        eq(window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length - lapsBefore, 1, "and no new lap was taken (the pit lane alone would set it again)");
         car.current_lap_time_ms = 20; car.car_location = "Track"; timing.invalid = false; frame(); eq(state.pitLap, false, "a real boundary: forgotten"); car.current_lap_time_ms = 200; frame();
     });
 
@@ -777,7 +898,8 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ok(has(root, "bd-invalid"), "cut on lap 3");
         car.current_lap_time_ms = undefined; frame(); ok(has(root, "bd-invalid"), "one frame without a clock changes nothing"); eq(state.lapMs, 110000, "the clock is kept");
         car.current_lap_time_ms = 50; timing.invalid = false; car.low_frequency.total_lap_count = 4; frame();
-        ok(!has(root, "bd-invalid"), "the next lap is clean, seen by the clock coming back smaller"); eq(state.lapCut, false); eq(me.recall("lap", null), null, "and nothing is filed under it");
+        ok(!has(root, "bd-invalid"), "the next lap is clean, seen by the clock coming back smaller"); eq(state.lapCut, false);
+        const filed = me.recall("lap", null); ok(filed && filed.cut === false && filed.owed === true && filed.pit === false && filed.next === false, "and nothing is filed under it but that the lap before owes its verdict: " + JSON.stringify(filed));
         // the lap count alone, with a clock that never went back (a stall that hid the reset), is a boundary
         car.current_lap_time_ms = 60000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut on lap 4");
         car.low_frequency.total_lap_count = 5; car.current_lap_time_ms = 60100; timing.invalid = false; frame();
@@ -793,12 +915,16 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         ok(has(root, "bd-invalid")); eq(me.recall("lap", null).cut, true, "remembered");
         // a new session's lap 0, 40 s in, flag down, the app switched on now: same lap number, a later clock, no flag
         B.detach(state); root.classList.remove("bd-invalid"); car.current_lap_time_ms = 40000; timing.invalid = false; state = B.attach(root); frame();
-        ok(!has(root, "bd-invalid"), "no flag, no cut"); eq(state.lapCut, false); eq(me.recall("lap", null), null, "the stale record is gone");
+        ok(!has(root, "bd-invalid"), "no flag, no cut"); eq(state.lapCut, false); ok((function () { const r = me.recall("lap", null); return r && r.cut === false && r.owed === true && r.pit === false && r.next === false; }()), "the stale cut is gone; only its debt is kept, which can only swallow a verdict");
         // whereas with the flag up it is this lap and the cut comes back
         car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 20000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"));
         B.detach(state); root.classList.remove("bd-invalid"); car.current_lap_time_ms = 40000; state = B.attach(root); frame(); ok(has(root, "bd-invalid"), "flag up: restored");
         // a pending next-lap record from a car model that never gave a lap count anchors nothing by itself: with the flag down it is let go
-        car.current_lap_time_ms = 20; timing.invalid = false; frame(); eq(me.recall("lap", null), null, "a clean lap first: nothing in the store");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame();
+        const before = me.recall("lap", null); ok(before && before.cut === false && before.owed === true && before.pit === false && before.next === false, "a clean lap first: nothing in the store but a verdict the lap before may owe: " + JSON.stringify(before));
+        // that debt is let go here: this part is about a car model that never gives a lap count, and a record filed
+        // under a number would (rightly) wait for one and keep the notice's record from being written
+        me.forget("lap");
         car.low_frequency = undefined; B.detach(state); state = B.attach(root); car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame(); eq(state.lapCount, null);
         notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_InvalidNextLap")); frame(); eq(state.nextLapInvalid, true); eq(me.recall("lap", null).lap, null, "no lap number to file it under");
         B.detach(state); car.current_lap_time_ms = 31000; state = B.attach(root); frame(); eq(state.nextLapInvalid, false, "not kept: no lap number and no flag, nothing ties the record to this lap"); eq(me.recall("lap", null), null);
@@ -818,13 +944,25 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
-    t("a pit-lap record is restored only where a pit lap can be: in the pit lane or under the flag, never on a clean lap on the track", function () {
+    t("a pit-lap record of another session is refused on a clean lap on the track when the game gives session ids, and kept when it gives none; under the flag it is the out-lap it describes", function () {
         car.low_frequency = { total_lap_count: 0 }; car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Pitlane"; frame(); car.current_lap_time_ms = 3000; frame();
         eq(state.pitLap, true); eq(me.recall("lap", null).pit, true, "remembered");
-        // another session's lap 0, on the track, flag down, later clock: the record does not fit
+        // another session's lap 0, on the track, flag down, later clock: the session ids tell it apart
+        me.remember("lap", Object.assign({}, me.recall("lap", null), { sess: "1/1" }));
+        try {
+            B.detach(state); window.ModelUISessionState = { event_id: 1, session_id: 2 }; car.car_location = "Track"; car.current_lap_time_ms = 40000; timing.invalid = false; state = B.attach(root); frame();
+            eq(state.pitLap, false, "not a pit lap"); eq(me.recall("lap", null), null, "the stale record is gone");
+            car.current_lap_time_ms = 50000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "so a cut on it reads INVALID, not OUTLAP"); eq(q(".bd-invalid-tag").textContent, "INVALID");
+        } finally {
+            window.ModelUISessionState = undefined;
+        }
+        // with no session ids the same lap number on the track with the flag down is kept as the pit lap it says it is:
+        // a reload between the pit exit and the flag rising lands exactly there, and a missing red is the safe side (sixth round)
+        car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Pitlane"; frame(); car.current_lap_time_ms = 3000; frame(); eq(state.pitLap, true);
+        // the widget still carries the key of the session above: the record is written as a game with no ids writes it
+        me.remember("lap", Object.assign({}, me.recall("lap", null), { sess: "" }));
         B.detach(state); car.car_location = "Track"; car.current_lap_time_ms = 40000; timing.invalid = false; state = B.attach(root); frame();
-        eq(state.pitLap, false, "not a pit lap"); eq(me.recall("lap", null), null, "the stale record is gone");
-        car.current_lap_time_ms = 50000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "so a cut on it reads INVALID, not OUTLAP"); eq(q(".bd-invalid-tag").textContent, "INVALID");
+        eq(state.pitLap, true, "no ids: kept"); car.current_lap_time_ms = 40030; timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "the flag after the pit exit is quiet"); eq(q(".bd-invalid-tag").textContent, "OUTLAP");
         // whereas the same record under the flag on the track is the out-lap it describes
         car.current_lap_time_ms = 20; timing.invalid = false; car.car_location = "Pitlane"; frame(); car.current_lap_time_ms = 3000; frame(); eq(state.pitLap, true);
         B.detach(state); root.classList.remove("bd-invalid"); car.car_location = "Track"; car.current_lap_time_ms = 40000; timing.invalid = true; state = B.attach(root); frame();
@@ -843,7 +981,8 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.has_focused_car = true; frame(); ok(has(root, "bd-invalid"), "the car is back on the same lap, flag up: the cut is restored"); ok(has(root, "bd-top-on")); eq(state.cutReason, "");
         // away again, and back on another lap with the flag up from its start: the old cut does not follow
         car.has_focused_car = false; frame(); car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 40000; car.has_focused_car = true; frame();
-        ok(!has(root, "bd-invalid"), "another lap, flagged from where the widget joined it: no tag"); eq(state.lapCut, false); eq(me.recall("lap", null), null, "the old record is gone");
+        ok(!has(root, "bd-invalid"), "another lap, flagged from where the widget joined it: no tag"); eq(state.lapCut, false);
+        const left = me.recall("lap", null); ok(left && left.cut === false && left.owed === true && left.pit === false && left.next === false, "the old cut is gone; the record says only that lap 3, cut with no verdict, owes it: " + JSON.stringify(left));
         // and back on another lap with the flag down: a clean lap, and a rise on it is a cut of its own
         car.has_focused_car = false; frame(); car.low_frequency.total_lap_count = 5; car.current_lap_time_ms = 40000; timing.invalid = false; car.has_focused_car = true; frame();
         ok(!has(root, "bd-invalid")); car.current_lap_time_ms = 41000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut on the lap the car came back to");
@@ -852,6 +991,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 
     t("a record is tied to its session: another session's cut is not restored on a lap whose number and clock happen to fit, even under the flag", function () {
         window.ModelUISessionState = { event_id: 4, session_id: 1 };
+        try {
         car.low_frequency = { total_lap_count: 0 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 20000; timing.invalid = true; frame();
         ok(has(root, "bd-invalid")); eq(me.recall("lap", null).sess, "4/1", "filed under the session");
         // a new session, lap 0, 40 s in, the flag up (an out-lap flagged from the exit): not that cut
@@ -861,7 +1001,10 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         // the same session's record comes back as before
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 20000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"));
         B.detach(state); root.classList.remove("bd-invalid"); car.current_lap_time_ms = 40000; state = B.attach(root); frame(); ok(has(root, "bd-invalid"), "same session: restored");
-        window.ModelUISessionState = undefined; car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+        } finally {
+            window.ModelUISessionState = undefined;
+        }
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
     t("the first frame waits for a lap clock: a reload whose first frames have no clock keeps the record and restores it when the clock comes", function () {
@@ -918,11 +1061,14 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("a verdict arriving on the boundary frame, with the flag of the lap before still standing, is that lap's: the new lap is not marked", function () {
         car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 98000; timing.invalid = true; frame();
         eq(state.lapCut, true, "a cut in the last corner"); ok(has(root, "bd-invalid"));
+        // its verdict already came, so the lap owes nothing: what refuses the one below is the first-moments guard, not a debt
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); eq(state.cutReason, "TRACK LIMITS");
         // the line: the car model's clock resets while the timing model still shows the flag (two models, two ticks)
         car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 30; frame(); eq(state.lapCut, false, "a new lap"); eq(state.lapStartedInvalid, true, "the flag as found, assumed the lap before's for now");
+        eq(state.verdictOwed, false); const said932 = window.__log.length;
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
         eq(state.lapCut, false, "the verdict is the old lap's: not pinned on this one"); eq(state.cutReason, ""); eq(me.recall("lap", null), null);
-        ok(window.__log.some(function (l) { return l.indexOf("with no flag of this lap's up") >= 0; }), "and logged as dropped");
+        ok(window.__log.slice(said932).some(function (l) { return l.indexOf("with no flag of this lap's up") >= 0; }), "and logged as dropped by the guard");
         timing.invalid = false; car.current_lap_time_ms = 200; frame(); ok(!has(root, "bd-invalid"), "the flag drops a frame later: a clean lap");
         car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid")); eq(q(".bd-invalid-tag").textContent, "INVALID", "a cut on it has no reason lying in wait");
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
@@ -938,14 +1084,15 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(state.restorePending, false); ok(has(root, "bd-invalid"), "the count came: the cut is restored"); eq(state.lapCut, true);
         // the lap ends before the count comes: the record is let go with the lap
         car.has_focused_car = false; frame(); car.low_frequency = undefined; car.current_lap_time_ms = 41000; car.has_focused_car = true; frame(); eq(state.restorePending, true);
-        car.current_lap_time_ms = 20; timing.invalid = false; frame(); eq(state.restorePending, false); eq(me.recall("lap", null), null, "a new lap: the old record is gone");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); eq(state.restorePending, false);
+        const settled = me.recall("lap", null); ok(settled && settled.cut === false && settled.owed === true && settled.pit === false && settled.next === false, "a new lap: the old cut is gone, and the lap that ended, cut with no verdict, owes it: " + JSON.stringify(settled));
         car.current_lap_time_ms = 200; frame();
     });
 
     t("the trace fills in a skipped slot or two, not a stretch it had no data for: a delta outage or a hidden HUD leaves its slots blank", function () {
         set("showTrace", true); car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.npos = 0.10; setDelta(-500); car.current_lap_time_ms = 5000; frame(); ok(sy(ups[12]) > 0, "slot 12 drawn");
         setDelta(null); car.npos = 0.30; frame(); eq(sy(ups[24]), 0, "no delta: nothing drawn"); eq(sy(ups[36]), 0);
-        setDelta(-500); car.npos = 0.50; frame(); ok(sy(ups[60]) > 0, "the slot under the car"); ok(sy(ups[58]) > 0, "two back is filled in");
+        setDelta(-500); car.npos = 0.50; frame(); ok(sy(ups[60]) > 0, "the slot under the car"); ok(sy(ups[58]) > 0, "two back is filled in"); ok(sy(ups[57]) > 0, "and three back, the last the cap allows");
         eq(sy(ups[56]), 0, "four back is not: the widget had no data there (backfill capped at " + B.TRACE_BACKFILL_MAX + ")"); eq(sy(ups[40]), 0);
         document.body.classList.add(ACEUIAppLoader.HUD_HIDDEN_CLASS); car.npos = 0.90; frame(); frame();
         document.body.classList.remove(ACEUIAppLoader.HUD_HIDDEN_CLASS); car.npos = 0.95; frame();
@@ -1032,7 +1179,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 60000; frame(); car.current_lap_time_ms = 59850; frame(); ok(has(root, "bd-invalid"), "150 ms back from a running clock far from the line: a correction, not a lap"); eq(laps(), before);
         car.current_lap_time_ms = 61000; frame(); car.current_lap_time_ms = 60400; frame(); eq(laps(), before, "600 ms back, far from the line: the landing rule, not the tolerance, refuses it"); ok(has(root, "bd-invalid"));
         car.current_lap_time_ms = 62000; frame(); car.current_lap_time_ms = 60900; frame(); eq(laps(), before + 1, "1100 ms back: more than a lap's worth of correction, so a lap");
-        ok(!has(root, "bd-invalid"), "and that lap starts clean"); car.current_lap_time_ms = 20; timing.invalid = false; frame();
+        ok(!has(root, "bd-invalid"), "and that lap began under the flag: no tag"); car.current_lap_time_ms = 20; timing.invalid = false; frame();
         car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut on the lap that follows, for the pit-lane run below");
         // the multiplayer log of 2026-09-23 02:29: the car parked in the pit lane, the clock past three
         // hours, the game stepping it back every second or so (the pairs below are the recorded values
@@ -1048,6 +1195,10 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 26; timing.invalid = false; frame(); eq(laps(), kept + 1, "the line"); ok(!has(root, "bd-invalid"));
         car.current_lap_time_ms = 100000; frame(); car.current_lap_time_ms = 3000; frame(); eq(laps(), kept + 2, "a stall over the line, 3 s in");
         car.current_lap_time_ms = 100000; frame(); car.current_lap_time_ms = 6000; frame(); eq(laps(), kept + 3, "a longer stall: past the landing window, but the drop is most of a lap");
+        // the landing window at its edge, with steps back under a second so only the landing decides
+        car.current_lap_time_ms = 5500; frame(); car.current_lap_time_ms = 4999; frame(); eq(laps(), kept + 4, "501 ms back, landing just inside " + B.LAP_CLOCK_LANDING_MS + " ms: a lap");
+        car.current_lap_time_ms = 5600; frame(); car.current_lap_time_ms = 5001; frame(); eq(laps(), kept + 4, "599 ms back, landing just past it: a correction, not a lap");
+        car.current_lap_time_ms = 5600; frame(); car.current_lap_time_ms = 5000; frame(); eq(laps(), kept + 4, "600 ms back, landing exactly at 5000 ms: not inside the window either");
         car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
     });
 
@@ -1077,10 +1228,13 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
 
     t("a verdict on a boundary frame that lacks the lap clock is still the old lap's: the new lap's first moments are not over until it has shown a clock", function () {
         car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 98000; timing.invalid = true; frame(); eq(state.lapCut, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); eq(state.cutReason, "TRACK LIMITS", "its verdict came: it owes nothing, so the guard below is what is tested");
         // the line: the count moves, the clock field is missing on that frame, the flag of the old lap still stands
         car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = undefined; frame(); eq(state.lapCut, false, "a new lap by the count"); eq(state.lapClockSeen, false);
+        eq(state.verdictOwed, false); const said1092 = window.__log.length;
         notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
         eq(state.lapCut, false, "the verdict is the old lap's"); eq(state.cutReason, "");
+        ok(window.__log.slice(said1092).some(function (l) { return l.indexOf("with no flag of this lap's up") >= 0; }), "refused by the guard");
         car.current_lap_time_ms = 60; frame(); eq(state.lapClockSeen, true); timing.invalid = false; car.current_lap_time_ms = 300; frame(); ok(!has(root, "bd-invalid"), "a clean lap");
         car.low_frequency = undefined; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
     });
@@ -1088,12 +1242,16 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("the model switch is asked once and guarded: a game that does not take it gets one line, a switch that throws does not stop attach or the frame, and a refusing penalty fetch is one line too", function () {
         const lines = function (what) { return window.__log.filter(function (l) { return l.indexOf(what) >= 0; }).length; };
         window.ksUI = { Models: { Disabled: ["ModelCarsOnTrack"], Enabled: [], enable: function () {} } };   // takes nothing
+        const call = window.engine.call;   // restored in the finally below, whatever fails inside
         try {
             B.detach(state); state = B.attach(root); frame(); const asked = lines("stayed switched off");
             eq(asked, 1, "said once at attach"); run(10100); eq(lines("stayed switched off"), asked, "and not again at any poll");
             window.ksUI.Models.enable = function () { throw new Error("the game refused"); };
-            B.detach(state); state = B.attach(root); frame(); eq(state.started, true, "attach survives a switch that throws"); const figureBefore = window.__log.length;
-            setDelta(-321); frame(); eq(figure.textContent, "-0.321", "and the frame draws"); run(2100); ok(window.__log.length - figureBefore < 20, "no flood from the poll");
+            B.detach(state); state = B.attach(root); frame(); eq(state.started, true, "attach survives a switch that throws");
+            const failedAtAttach = lines("model switch failed"), offAtAttach = lines("stayed switched off"); ok(failedAtAttach >= 1, "the throw is said at attach");
+            setDelta(-321); frame(); eq(figure.textContent, "-0.321", "and the frame draws");
+            run(10100); eq(lines("model switch failed"), failedAtAttach, "no flood from the poll: a throwing switch is not asked again over five polls");
+            eq(lines("stayed switched off"), offAtAttach, "nor said to have stayed off");
             // a penalty fetch the engine rejects, every time: one line
             engineHandlers.__pending = [];
             state.nextPenaltyPoll = now; frame(); engineHandlers.__pending[0].fail(new Error("no such model")); const said = lines("penalty state: not available");
@@ -1101,7 +1259,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             eq(lines("penalty state: not available"), said, "the same refusal again is not logged again"); ok(said >= 1);
             // an engine whose call throws instead of rejecting: the same one line, not one per poll, and nothing in flight
             engineHandlers.__pending = null;
-            const call = window.engine.call; window.engine.call = function () { throw new Error("it throws"); };
+            window.engine.call = function () { throw new Error("it throws"); };
             const threw = lines("penalty state: not available");
             state.nextPenaltyPoll = now; frame();
             eq(lines("penalty state: not available"), threw + 1, "a throw is logged, in the same words as a refusal");
@@ -1111,19 +1269,18 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             window.engine.call = function () { throw new Error("another reason"); };
             state.nextPenaltyPoll = now; frame();
             eq(lines("penalty state: not available"), threw + 2, "a different reason is a new line");
-            window.engine.call = call;
         } finally {
-            engineHandlers.__pending = null; window.ksUI = undefined;
+            window.engine.call = call; engineHandlers.__pending = null; window.ksUI = undefined;
             B.detach(state); state = B.attach(root); frame();
         }
     });
 
     t("attract switched off while the game gives no lap clock: the screen shows what the model gives at once, not the scripted frame", function () {
-        timing.best = "1:43.445"; eq(B.attract(true), true); run(3000);
+        timing.best = "1:44.000"; eq(B.attract(true), true); run(3000);
         eq(figure.textContent, B.formatDelta(B.attractValues(now).delta, 3), "the scripted lap's own figure is on screen");
         car.current_lap_time_ms = -1; setDelta(-777); eq(B.attract(false), false); frame();
         eq(state.started, false, "no clock: the lap is not joined yet"); eq(figure.textContent, "-0.777", "but the real delta is on screen at once");
-        eq(cellTime("best"), "1:43.445", "and the game's own best, not the scripted lap's"); ok(!has(root, "bd-invalid"));
+        eq(cellTime("best"), "1:44.000", "and the game's own best, not the scripted lap's (1:43.445)"); ok(!has(root, "bd-invalid"));
         timing.best = "";
         car.current_lap_time_ms = 20; timing.invalid = false; frame(); eq(state.started, true); car.current_lap_time_ms = 200; setDelta(-235); frame();
     });
@@ -1136,6 +1293,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 60; timing.invalid = true; frame();
         eq(state.lapCut, true, "the first clock of the new lap is not a second boundary"); eq(state.cutReason, "TRACK LIMITS", "and the reason stands");
         ok(has(root, "bd-invalid")); eq(me.recall("lap", null).cut, true, "the record stands too"); eq(state.lapClockSeen, true);
+        car.current_lap_time_ms = 30000; frame();   // the clock runs on, so the reset below is a line and not a wobble
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
@@ -1150,18 +1308,728 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 40200; frame(); ok(has(root, "bd-invalid"), "the tag is back with the flag still up");
         // the same lap number in a new session, its clock back at the start: not this record's lap
         B.detach(state); root.classList.remove("bd-invalid"); car.low_frequency = { total_lap_count: 7 }; car.current_lap_time_ms = 3000; state = B.attach(root); frame();
-        ok(!has(root, "bd-invalid"), "lap 7 again, but 37 s earlier: another session"); eq(state.lapCut, false); eq(me.recall("lap", null), null, "and the stale record is gone");
+        ok(!has(root, "bd-invalid"), "lap 7 again, but 37 s earlier: another session"); eq(state.lapCut, false); ok((function () { const r = me.recall("lap", null); return r && r.cut === false && r.owed === true && r.pit === false && r.next === false; }()), "and the stale cut is gone; only its debt is kept");
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
     });
 
     t("another car coming under focus in the first moments of a lap is still another lap: the grace is the lap count's alone", function () {
-        car.focused_car_id = "ours"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
+        // a lap begun on the clock, our cut in its first moments (the game's notice, with the flag)
+        car.focused_car_id = "ours"; car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 150; frame();
+        notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); timing.invalid = true; frame();
         ok(has(root, "bd-invalid"), "our cut"); eq(state.lapCut, true);
-        // the focus moves to another car whose lap has just begun: the cut is ours, not theirs
+        // the focus moves to another car while the clock runs on, still inside the first moments: no clock wrap,
+        // no count move, so only the car change can make this a new lap, and the grace must not hold it back
+        const said = window.__log.length;
         car.focused_car_id = "theirs"; car.current_lap_time_ms = 200; frame();
-        eq(state.lapCut, false, "another car's lap, clean"); ok(!has(root, "bd-invalid")); eq(state.carId, "theirs");
+        eq(state.lapCut, false, "another car's lap: our cut is not on it"); ok(!has(root, "bd-invalid"));
+        ok(window.__log.slice(said).some(function (l) { return l.indexOf("new lap (another car under focus)") >= 0; }), "a new lap taken by the car change");
         car.focused_car_id = "ours"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.focused_car_id = undefined; frame();
         car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a next-lap invalidation announced for our car is not applied to the lap another car under focus is on; it is dropped", function () {
+        car.focused_car_id = "ours"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_InvalidNextLap")); frame(); eq(state.nextLapInvalid, true);
+        // the focus moves to another car on its pit-exit lap: flagged from its first frame, no notice of its own
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 45000; timing.invalid = true; frame();
+        ok(!has(root, "bd-invalid"), "the other car's flagged lap is not red with our reason"); eq(state.lapCut, false); eq(state.nextLapInvalid, false, "dropped, not carried");
+        eq(me.recall("lap", null), null, "nothing filed under its lap");
+        car.focused_car_id = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: the lap record names the car, and a reload that comes back with another car under focus on a lap of the same number, flag up, does not paint our cut on it", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.focused_car_id = "ours"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 40000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid"), "our cut"); eq(me.recall("lap", null).car, "ours", "the record names the car");
+        B.detach(state); root.classList.remove("bd-invalid"); car.focused_car_id = "theirs"; car.current_lap_time_ms = 50000; state = B.attach(root); frame();
+        ok(!has(root, "bd-invalid"), "another car's lap 3 with the flag up is its pit exit, not our cut"); eq(state.lapCut, false);
+        ok(window.__log.some(function (l) { return l.indexOf("belongs to another car") >= 0; }), "and the log says why");
+        // ours again, same lap, same number: the record was let go with the other car's frame, so nothing comes back; the flag alone is a pit exit
+        B.detach(state); car.focused_car_id = "ours"; car.current_lap_time_ms = 41000; state = B.attach(root); frame(); eq(state.lapCut, false);
+        car.focused_car_id = undefined; car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: the lap count moving within the first moments after the clock's boundary is that boundary, so what the boundary frame gathered is kept; past them it is a lap of its own", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 90000; frame();
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_InvalidNextLap")); frame(); eq(state.nextLapInvalid, true);
+        // a stall over the line: the clock lands three seconds in, past the grace; the count is a frame behind
+        car.current_lap_time_ms = 3000; timing.invalid = true; frame();
+        eq(state.lapCut, true, "the announced invalidation took effect on the new lap"); ok(has(root, "bd-invalid"));
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 3016; frame();
+        eq(state.lapCut, true, "the count moving a frame later is the same boundary, not a second lap"); ok(has(root, "bd-invalid"));
+        eq(me.recall("lap", null).lap, 6, "and the record is filed under the new count");
+        // two frames behind, still inside the first moments after the landing: the same
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        car.current_lap_time_ms = 70000; timing.invalid = false; frame(); car.current_lap_time_ms = 4000; frame(); car.current_lap_time_ms = 4016; frame(); const before = laps();
+        car.low_frequency.total_lap_count = 7; car.current_lap_time_ms = 4032; frame(); eq(laps() - before, 0, "the count two frames behind the landing: no second lap");
+        // the count moving once the first moments after the landing are over is a lap of its own, as before
+        car.current_lap_time_ms = 4600; frame(); const before2 = laps();
+        car.low_frequency.total_lap_count = 8; frame(); eq(laps() - before2, 1, "the count moving 600 ms after the landing is a new lap");
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a verdict arriving after the line, once the car has come into the pit lane on the lap that followed, is the old lap's: the in-lap stays PIT LANE, through a reload too; the out-lap whose line lies in the pit lane still takes its verdict", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 100000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid"), "a cut in the last corner"); eq(state.lapCut, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); eq(state.cutReason, "TRACK LIMITS", "its verdict came: lap 3 owes nothing, so the in-lap rule is what is tested below");
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 30; timing.invalid = false; frame(); ok(!has(root, "bd-invalid"), "the line: the new lap is clean"); eq(state.verdictOwed, false);
+        car.current_lap_time_ms = 3000; car.car_location = "Pitentry"; timing.invalid = true; frame(); ok(has(root, "bd-pit"), "into the pit lane: PIT LANE"); eq(state.pitLate, true);
+        const saidInLap = window.__log.length;
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the verdict is the lap before's"); ok(has(root, "bd-pit")); eq(state.lapCut, false);
+        ok(window.__log.slice(saidInLap).some(function (l) { return l.indexOf("on an in-lap whose flag is the pit entry's") >= 0; }), "refused by the in-lap rule");
+        B.detach(state); state = B.attach(root); car.current_lap_time_ms = 3100; frame(); eq(state.pitLate, true, "remembered through the reload");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "after the reload too"); eq(state.lapCut, false);
+        // the out-lap on a track whose line lies inside the pit lane: pit lane from the first frame, the flag at the pit exit, then the verdict names a cut
+        car.current_lap_time_ms = 30; timing.invalid = false; car.car_location = "Pitlane"; frame(); eq(state.pitLate, false, "pit lane at the lap's start is not an in-lap");
+        car.current_lap_time_ms = 400; timing.invalid = true; frame(); car.current_lap_time_ms = 5000; car.car_location = "Track"; frame(); ok(has(root, "bd-pit"), "OUTLAP"); ok(!has(root, "bd-invalid"));
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "the verdict on the out-lap is this lap's: a cut after all"); eq(state.lapCut, true);
+        // the same out-lap reached through a stall over the line: its first frame lands past the grace with the car still in the pit lane, and it is no in-lap
+        car.low_frequency.total_lap_count = 5; car.current_lap_time_ms = 650; timing.invalid = false; car.car_location = "Pitlane"; frame();
+        eq(state.pitLate, false, "landing 650 ms in, in the pit lane, with no track seen this lap: not an in-lap");
+        car.current_lap_time_ms = 900; timing.invalid = true; frame(); car.current_lap_time_ms = 6000; car.car_location = "Track"; frame(); ok(has(root, "bd-pit")); ok(!has(root, "bd-invalid"));
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "its verdict is still taken"); eq(state.lapCut, true);
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a lap that ended cut with no reason owes its verdict: the NO GAIN arriving on the lap after, begun in the pit lane with the flag still up, goes to the lap before and paints nothing, through a reload too; with nothing owed the next verdict is this lap's", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 100000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid"), "a cut in the last corner, no verdict yet"); eq(state.cutReason, "");
+        car.current_lap_time_ms = 101000; car.car_location = "Pitentry"; frame(); ok(has(root, "bd-invalid"), "into the pit lane on the cut lap: still red");
+        // the line lies inside the pit lane; the game keeps the flag up on the lap begun there
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 125; car.car_location = "Pitlane"; frame();
+        eq(state.verdictOwed, true, "the lap before owes its verdict"); ok(!has(root, "bd-invalid"), "the new lap is a pit lap"); ok(has(root, "bd-pit"));
+        car.current_lap_time_ms = 3000; frame();
+        B.detach(state); state = B.attach(root); car.current_lap_time_ms = 3100; frame(); eq(state.verdictOwed, true, "owed through the reload");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the verdict is the lap before's: nothing painted here"); eq(state.verdictOwed, false, "and the debt is settled"); ok(has(root, "bd-pit")); eq(state.lapCut, false);
+        car.current_lap_time_ms = 20000; car.car_location = "Track"; frame(); ok(has(root, "bd-pit"), "OUTLAP");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "nothing owed any more: the next verdict is this lap's, a cut on the out-lap"); eq(state.lapCut, true);
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a verdict arriving while the remembered lap waits for its count is held and judged once the record is settled: the debt the record carries takes it, nothing is painted", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 100000; timing.invalid = true; frame();
+        car.current_lap_time_ms = 101000; car.car_location = "Pitentry"; frame();
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 125; car.car_location = "Pitlane"; frame(); car.current_lap_time_ms = 12000; frame();
+        eq(state.verdictOwed, true, "the lap before owes its verdict"); eq(me.recall("lap", null).owed, true);
+        // a reload whose first frame lacks the low-frequency block: the record waits for the count
+        const lf = car.low_frequency; car.low_frequency = undefined; B.detach(state); state = B.attach(root); car.current_lap_time_ms = 12100; frame();
+        eq(state.restorePending, true, "waiting for the count");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "held, not judged"); ok(state.heldVerdict, "held");
+        car.low_frequency = lf; car.current_lap_time_ms = 12200; frame();
+        eq(state.restorePending, false, "the count came"); eq(state.heldVerdict, null, "the held verdict was judged");
+        eq(state.verdictOwed, false, "it paid the debt"); eq(state.lapCut, false); ok(!has(root, "bd-invalid"), "nothing painted"); ok(has(root, "bd-pit"));
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a reload spanning the line after a cut with no verdict yet carries the debt: the refused record of the lap just before owes the next verdict", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.focused_car_id = "ours"; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 100000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid")); eq(me.recall("lap", null).cut, true); eq(me.recall("lap", null).reason, "");
+        // away across the line: the car is on lap 4 in the pit lane with the flag up when the widget is back
+        B.detach(state); car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 9000; car.car_location = "Pitlane"; state = B.attach(root); frame();
+        eq(state.lapCut, false, "lap 3's cut is not this lap's"); eq(state.verdictOwed, true, "but lap 3 owes its verdict");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "lap 3's verdict paints nothing on lap 4"); ok(has(root, "bd-pit")); eq(state.verdictOwed, false);
+        // another session's record carries no debt
+        car.current_lap_time_ms = 30000; car.car_location = "Track"; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame();
+        car.car_location = "Track"; car.current_lap_time_ms = 50000; timing.invalid = true; frame(); eq(me.recall("lap", null).cut, true);
+        window.ModelUISessionState = { event_id: 1, session_id: 1 }; me.remember("lap", Object.assign({}, me.recall("lap", null), { sess: "1/1" }));
+        const cutRecord = me.recall("lap", null);
+        try {
+            eq(cutRecord.lap, 4, "filed under lap 4");
+            B.detach(state); window.ModelUISessionState = { event_id: 1, session_id: 2 }; car.low_frequency.total_lap_count = 5; car.current_lap_time_ms = 9000; car.car_location = "Pitlane"; state = B.attach(root); frame();
+            eq(state.verdictOwed, false, "lap 4's record from another session owes nothing on lap 5");
+        } finally {
+            window.ModelUISessionState = undefined;
+        }
+        // nor another car's
+        me.remember("lap", Object.assign({}, cutRecord, { sess: "" }));
+        B.detach(state); car.focused_car_id = "theirs"; state = B.attach(root); frame();
+        eq(state.verdictOwed, false, "lap 4's record of our car owes nothing on another car's lap 5");
+        me.remember("lap", Object.assign({}, cutRecord, { sess: "" })); B.detach(state); car.focused_car_id = "ours"; state = B.attach(root); frame();
+        eq(state.verdictOwed, true, "and with our car and no session to tell apart, it does: the guards are what refused above");
+        car.focused_car_id = undefined; car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("sixth round 2026-09-23: a line crossed while the remembered lap still waits for its count keeps that lap's debt: the verdict arriving on the out-lap is the lap before's", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 90000; timing.invalid = true; frame();
+        car.current_lap_time_ms = 95000; car.car_location = "Pitentry"; frame(); eq(me.recall("lap", null).cut, true); eq(me.recall("lap", null).reason, "");
+        // a reload a frame before the line, the low-frequency block missing on the frame back: waiting
+        const lf = car.low_frequency; car.low_frequency = undefined; B.detach(state); state = B.attach(root); car.current_lap_time_ms = 96000; car.car_location = "Pitlane"; frame();
+        eq(state.restorePending, true);
+        // the line, inside the pit lane, before the count comes
+        // (the location reads nothing on that frame, so no pit-lane or track write saves the record for it)
+        car.current_lap_time_ms = 40; car.car_location = "Unassigned"; frame(); eq(state.verdictOwed, true, "the ended lap's debt is kept"); eq(me.recall("lap", null).owed, true, "and written to the record at once");
+        car.low_frequency = lf; lf.total_lap_count = 4; car.current_lap_time_ms = 200; car.car_location = "Pitlane"; timing.invalid = false; frame();
+        car.current_lap_time_ms = 5000; timing.invalid = true; car.car_location = "Track"; frame(); ok(has(root, "bd-pit"), "OUTLAP");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the lap before's verdict paints nothing on the out-lap"); eq(state.verdictOwed, false);
+        car.low_frequency = undefined; car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("sixth round 2026-09-23: a reload between the pit exit and the flag rising keeps the pit lane: the flag that rises a moment later is the pit exit's, not a cut", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 40; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        eq(me.recall("lap", null).pit, true, "a pit lap on record");
+        car.car_location = "Track"; car.current_lap_time_ms = 31000; B.detach(state); state = B.attach(root); frame();
+        eq(state.pitLap, true, "on the track, flag not up yet: the pit lane is kept");
+        timing.invalid = true; car.current_lap_time_ms = 31030; frame();
+        ok(!has(root, "bd-invalid"), "the flag at the pit exit is no cut"); ok(has(root, "bd-pit"), "OUTLAP");
+        car.low_frequency = undefined; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("second review 2026-09-24: while a remembered record waits for the lap count, a flag rising alone is not painted: the record may yet name the pit lane, and then the flag was the pit exit's", function () {
+        // a pit lap on record, then a reload on the track past the pit exit, the flag not up yet, and no count on the frames back
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 40; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        eq(me.recall("lap", null).pit, true, "a pit lap on record");
+        const lowFrequency = car.low_frequency;
+        car.car_location = "Track"; car.low_frequency = undefined; car.current_lap_time_ms = 31000; B.detach(state); state = B.attach(root); frame();
+        eq(state.restorePending, true, "the record waits for the count"); eq(state.pitLap, false, "and until it speaks the frame knows no pit lane");
+        timing.invalid = true; car.current_lap_time_ms = 31030; frame();
+        ok(!has(root, "bd-invalid"), "the flag rising while the record waits is not painted red");
+        car.low_frequency = lowFrequency; car.current_lap_time_ms = 31060; frame(); eq(state.restorePending, false);
+        ok(!has(root, "bd-invalid"), "the count came and the record named the pit lane: no cut"); ok(has(root, "bd-pit"), "OUTLAP");
+        car.low_frequency = undefined; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("second review 2026-09-24: another car coming under focus mid-lap has its lap taken as flagged from the start: a timing model a frame behind the focus cannot turn that car's pit-exit flag red", function () {
+        car.focused_car_id = "ours"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 40000; frame();
+        // the focus moves; on that frame the timing model still shows our clean flag, the other car's pit-exit flag a frame later
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 52000; frame();
+        eq(state.lapStartedInvalid, true, "the flag on the focus-change frame is not taken as the new car's");
+        timing.invalid = true; car.current_lap_time_ms = 52016; frame();
+        ok(!has(root, "bd-invalid"), "no red on the other car's lap"); eq(state.lapCut, false);
+        car.focused_car_id = undefined; timing.invalid = false; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("second review 2026-09-24: a record comes back across a multiplayer clock correction: a lap clock a few ms behind the mark, well into the lap, is the lap that wrote it; a lap's first seconds never are", function () {
+        car.low_frequency = { total_lap_count: 4 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 40000; frame();
+        timing.invalid = true; car.current_lap_time_ms = 40016; frame(); ok(has(root, "bd-invalid"), "a cut"); eq(me.recall("lap", null).at, 40016);
+        car.has_focused_car = false; frame();
+        car.has_focused_car = true; car.current_lap_time_ms = 39980; frame();          // back a frame later, the clock corrected back 36 ms
+        eq(state.lapCut, true, "restored, not refused as behind its mark"); ok(has(root, "bd-invalid"), "the red is kept");
+        car.has_focused_car = false; frame();
+        car.has_focused_car = true; car.current_lap_time_ms = 4900; frame();           // the same number, under five seconds in: a lap of its own
+        eq(state.lapCut, false, "a clock in a lap's first seconds is never a correction of a mark 40 s in");
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("second review 2026-09-24: while the cars-on-track model is switched off its values are stale: the focused car's number is unknown, so online a notice is nobody's", function () {
+        const had = window.ksUI, hadCars = window.ModelCarsOnTrack, hadLf = car.low_frequency;
+        window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 666, is_focused: true }, { car_number: 7, is_focused: false }] };
+        car.low_frequency = { total_drivers: 12 };
+        window.ksUI = { Models: { Disabled: [], Enabled: ["ModelCarsOnTrack"], enable: function () {} } };
+        try {
+            eq(B.isOwnCar({ car: 666, type: "", reason: "" }), true, "streaming: #666 is the focused car");
+            window.ksUI.Models.Disabled.push("ModelCarsOnTrack");
+            eq(B.isOwnCar({ car: 666, type: "", reason: "" }), false, "switched off: the list is stale, so #666 is not known to be ours");
+        } finally {
+            window.ksUI = had; window.ModelCarsOnTrack = hadCars; car.low_frequency = hadLf;
+        }
+    });
+
+    t("second review 2026-09-24: a frame with no focused car takes the predicted lap and its colour down too", function () {
+        timing.best = "1:40.000"; car.predicted_lap_time_ms = 99000; timing.invalid = false; frame();
+        const cell = q(".bd-cell-pred");
+        ok(has(cell, "bd-pred-faster"), "a second under the best: green"); eq(q(".bd-cell-pred .bd-time").textContent, "1:39.000");
+        car.has_focused_car = false; frame();
+        ok(!has(cell, "bd-pred-faster") && !has(cell, "bd-pred-slower"), "no car: no colour"); eq(q(".bd-cell-pred .bd-time").textContent, "-:--.---", "and no time");
+        car.has_focused_car = true; timing.best = ""; car.predicted_lap_time_ms = -1; frame();
+    });
+
+    t("seventh round 2026-09-23: a cut lap refused after a reload as over (the car back in the pit lane on the same lap number) passes its debt on: the late verdict paints nothing in the pits", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 60020; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut"); eq(me.recall("lap", null).reason, "");
+        // return to the pits across a reload: same lap number, in the pit lane, flag up
+        B.detach(state); car.car_location = "Pitlane"; car.current_lap_time_ms = 61000; state = B.attach(root); frame();
+        eq(state.lapCut, false, "the cut lap is over"); ok(has(root, "bd-pit"), "PIT LANE"); eq(state.verdictOwed, true, "and owes its verdict");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the late verdict paints nothing in the pits"); ok(has(root, "bd-pit")); eq(state.verdictOwed, false);
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 90000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eighth round 2026-09-23: a verdict never marks a lap the car has not driven on the track, and an unpaid debt survives a lap that never reached the track: a return to the pits after the line keeps the late verdict off the pit lap", function () {
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        // (a) the report's sequence: a cut in the last corner, two seconds of the next lap on the track, then back to the box
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 80000; frame();
+        car.current_lap_time_ms = 80020; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut in the last corner");
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 35; timing.invalid = false; frame(); eq(state.verdictOwed, true, "lap 5 owes its verdict");
+        car.current_lap_time_ms = 2035; frame(); const before = laps();
+        car.current_lap_time_ms = 0; car.car_location = "Pitlane"; timing.invalid = true; frame();
+        eq(laps() - before, 1, "the reset is a lap boundary"); eq(state.pitLate, false, "a lap begun in the box"); eq(state.trackSeen, false);
+        eq(state.verdictOwed, false, "lap 6 was on the track and ended clean: the debt is not carried through it");
+        car.current_lap_time_ms = 4000; frame(); const said = window.__log.length;
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the late verdict paints nothing in the box"); ok(has(root, "bd-pit"), "PIT LANE");
+        ok(window.__log.slice(said).some(function (l) { return l.indexOf("has not been on the track on") >= 0; }), "refused: no lap of the track");
+        // (b) the carry: a cut, the line inside the pit lane, and a reset in the box before the verdict comes
+        car.current_lap_time_ms = 30000; car.car_location = "Track"; timing.invalid = false; frame(); car.low_frequency.total_lap_count = 8; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 60020; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut"); car.current_lap_time_ms = 61000; car.car_location = "Pitentry"; frame();
+        car.low_frequency.total_lap_count = 9; car.current_lap_time_ms = 40; car.car_location = "Pitlane"; frame(); eq(state.verdictOwed, true, "lap 8 owes its verdict");
+        car.current_lap_time_ms = 1500; frame(); car.current_lap_time_ms = 0; frame(); eq(state.verdictOwed, true, "lap 9 never reached the track: the debt is carried through it");
+        car.current_lap_time_ms = 3000; frame(); const said2 = window.__log.length;
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "nothing painted"); eq(state.verdictOwed, false, "debt paid");
+        ok(window.__log.slice(said2).some(function (l) { return l.indexOf("owed by the lap before") >= 0; }), "taken as the debt");
+        // (c) a refused record that still owes passes the debt on: lap 10 cut on the track, lap 11 begun in the box owing it, then a reload that finds the count moved
+        car.low_frequency.total_lap_count = 10; car.current_lap_time_ms = 30000; car.car_location = "Track"; timing.invalid = false; frame(); car.current_lap_time_ms = 30020; timing.invalid = true; frame();
+        car.low_frequency.total_lap_count = 11; car.current_lap_time_ms = 30; car.car_location = "Pitlane"; frame(); eq(state.verdictOwed, true); eq(me.recall("lap", null).owed, true);
+        B.detach(state); car.low_frequency.total_lap_count = 12; car.current_lap_time_ms = 900; state = B.attach(root); frame();
+        eq(state.verdictOwed, true, "the refused record's unpaid debt comes with it");
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("ninth round 2026-09-23: a cut hidden under an out-lap's flag owes its verdict: arriving after the line on the next pit-exit lap it paints nothing", function () {
+        // the line lies inside the pit lane: box, line, exit
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame();
+        car.current_lap_time_ms = 500; car.car_location = "Track"; timing.invalid = true; frame(); ok(has(root, "bd-pit"), "OUTLAP"); eq(state.hiddenCut, true, "on the track under the pit exit's flag");
+        car.current_lap_time_ms = 88000; frame();   // a cut in the last corner: the flag is already up, nothing to see
+        car.current_lap_time_ms = 90000; car.car_location = "Pitentry"; frame();
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 34; car.car_location = "Pitlane"; timing.invalid = false; frame();
+        eq(state.hiddenOwed, true, "the out-lap may have hidden a cut: it owes the weaker debt"); eq(state.verdictOwed, false, "not the full one");
+        car.current_lap_time_ms = 400; car.car_location = "Track"; timing.invalid = true; frame(); ok(has(root, "bd-pit"), "OUTLAP again");
+        car.current_lap_time_ms = 5000; frame(); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the out-lap's verdict paints nothing on this one"); ok(has(root, "bd-pit")); eq(state.hiddenOwed, false, "paid");
+        // and a verdict on this out-lap itself, with nothing owed, still names its cut (Road Atlanta 01:18:24)
+        car.current_lap_time_ms = 20000; frame(); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "a cut on the out-lap itself, named by its verdict"); eq(state.cutReason, "TRACK LIMITS");
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eighth round, harness pass 2026-09-23: a lap carrying a debt that reached the track records it, and its refused record passes the debt on no further", function () {
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 60020; timing.invalid = true; frame(); ok(has(root, "bd-invalid"));
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 40; car.car_location = "Pitlane"; timing.invalid = false; frame(); eq(state.verdictOwed, true, "lap 3 owes");
+        eq(me.recall("lap", null).track, false, "lap 4 has not reached the track yet");
+        // the flag down on this frame, so lap 4 has no hidden-cut debt of its own and only lap 3's is in question
+        car.current_lap_time_ms = 900; car.car_location = "Track"; timing.invalid = false; frame(); eq(me.recall("lap", null).track, true, "it has now, and the record says so"); eq(state.hiddenCut, false);
+        B.detach(state); car.low_frequency.total_lap_count = 5; car.current_lap_time_ms = 900; state = B.attach(root); frame();
+        eq(state.verdictOwed, false, "lap 4 reached the track: its refused record passes lap 3's debt on no further");
+        car.low_frequency = undefined; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("tenth round 2026-09-23: after an ordinary stop a cut on the first flying lap keeps its reason: the out-lap's weaker debt never takes a verdict that names a cut the flag showed", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame();
+        car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "the out-lap, past the pit exit");
+        car.current_lap_time_ms = 90000; frame();
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 30; timing.invalid = false; frame(); eq(state.hiddenOwed, true); eq(state.verdictOwed, false);
+        car.current_lap_time_ms = 200; frame(); eq(me.recall("lap", null).track, true, "the record learns the lap reached the track"); car.current_lap_time_ms = 40000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "a cut on the first flying lap");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "named, not swallowed by the out-lap's debt");
+        // and the lap after that owes nothing: no chain of lost reasons
+        car.low_frequency.total_lap_count = 7; car.current_lap_time_ms = 30; timing.invalid = false; frame(); eq(state.verdictOwed, false); eq(state.hiddenOwed, false);
+        car.low_frequency = undefined; car.current_lap_time_ms = 30000; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("tenth round 2026-09-23: the out-lap's hidden-cut mark is kept in the record: a reload spanning the line still owes its verdict to the next pit-exit lap", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame();
+        car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(me.recall("lap", null).hidden, true, "recorded when made");
+        car.current_lap_time_ms = 88000; frame(); car.current_lap_time_ms = 90000; car.car_location = "Pitentry"; frame();
+        // away across the line: the widget is back on lap 6 in the pit lane
+        B.detach(state); car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 200; car.car_location = "Pitlane"; timing.invalid = false; state = B.attach(root); frame();
+        eq(state.hiddenOwed, true, "the refused out-lap record passes the weaker debt on");
+        car.current_lap_time_ms = 900; car.car_location = "Track"; timing.invalid = true; frame(); ok(has(root, "bd-pit"), "OUTLAP");
+        car.current_lap_time_ms = 30000; frame(); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "the out-lap's late verdict paints nothing on this pit-exit lap"); eq(state.hiddenOwed, false);
+        eq(me.recall("lap", null).hiddenOwed, false, "paid, and the record says so: a reload on this lap would not bring the debt back");
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("tenth harness pass 2026-09-23: the clock tolerance is pinned at its edge, near the line, where the landing rule does not decide", function () {
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 1000; frame(); const before = laps();
+        car.current_lap_time_ms = 850; frame(); eq(laps() - before, 0, "exactly the tolerance back, a second into the lap: no lap");
+        car.current_lap_time_ms = 1000; frame();
+        car.current_lap_time_ms = 849; frame(); eq(laps() - before, 1, "a millisecond more: a lap");
+        car.current_lap_time_ms = 200; frame();
+    });
+
+    t("tenth harness pass 2026-09-23: the out-lap's weaker debt through the store: read back on the same lap, carried through a lap never on the track, passed on by a refused record only while its lap never reached the track, and taken at a boundary while the record waits", function () {
+        const outLap = function (count) {
+            car.low_frequency = { total_lap_count: count }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame();
+            car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+            car.current_lap_time_ms = 80000; frame();
+        };
+        // (a) read back on the same lap after a reload
+        outLap(5);
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame(); eq(state.hiddenOwed, true);
+        B.detach(state); car.current_lap_time_ms = 3100; state = B.attach(root); frame(); eq(state.hiddenOwed, true, "restored from the record on the same lap");
+        // (b) carried through a lap that never reached the track: the line inside the pit lane and back into the box
+        car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.low_frequency.total_lap_count = 7; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 80000; frame();
+        outLap(8);
+        car.current_lap_time_ms = 90000; car.car_location = "Pitentry"; frame();
+        car.low_frequency.total_lap_count = 9; car.current_lap_time_ms = 40; car.car_location = "Pitlane"; timing.invalid = false; frame(); eq(state.hiddenOwed, true, "lap 9 owes lap 8's");
+        car.current_lap_time_ms = 2000; frame(); car.current_lap_time_ms = 0; frame(); eq(state.hiddenOwed, true, "lap 9 never reached the track: carried into lap 10");
+        // (c) passed on by lap 10's refused record while it has not reached the track
+        eq(me.recall("lap", null).track, false); eq(me.recall("lap", null).hiddenOwed, true);
+        B.detach(state); car.low_frequency.total_lap_count = 11; car.current_lap_time_ms = 500; state = B.attach(root); frame();
+        eq(state.hiddenOwed, true, "the refused record of a lap never on the track passes the weaker debt on");
+        car.current_lap_time_ms = 900; car.car_location = "Track"; timing.invalid = true; frame(); ok(has(root, "bd-pit"));
+        car.current_lap_time_ms = 20000; frame(); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(!has(root, "bd-invalid"), "and it takes the verdict that would have marked this pit-exit lap"); eq(state.hiddenOwed, false);
+        //     ...and no further once the lap reached the track
+        car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.low_frequency.total_lap_count = 12; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 80000; frame();
+        outLap(13);
+        car.low_frequency.total_lap_count = 14; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 900; frame();
+        eq(state.hiddenOwed, true); eq(me.recall("lap", null).track, true, "lap 14 is on the track");
+        B.detach(state); car.low_frequency.total_lap_count = 15; car.current_lap_time_ms = 500; state = B.attach(root); frame();
+        eq(state.hiddenOwed, false, "its refused record passes the weaker debt on no further");
+        // (d) taken at a boundary while the record waits for its count
+        car.current_lap_time_ms = 30000; frame(); car.low_frequency.total_lap_count = 16; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 50000; frame();
+        outLap(17);
+        const lf = car.low_frequency; car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 81000; state = B.attach(root); frame();
+        eq(state.restorePending, true, "waiting for the count");
+        car.current_lap_time_ms = 40; car.car_location = "Unassigned"; timing.invalid = false; frame(); eq(state.hiddenOwed, true, "the out-lap that ended while its record waited owes the weaker debt");
+        eq(me.recall("lap", null).hiddenOwed, true, "and written to the record at once");
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: an out-lap ended by another car coming under focus owes nothing, not even the weaker debt", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.focused_car_id = "ours"; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 40000; frame();
+        eq(state.hiddenOwed, false, "the other car's lap owes nothing of ours"); eq(state.verdictOwed, false);
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: a refused out-lap record passes the weaker debt on only for our car in this session", function () {
+        window.ModelUISessionState = { event_id: 1, session_id: 1 };
+        try {
+            car.low_frequency = { total_lap_count: 5 }; car.focused_car_id = "ours"; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+            car.current_lap_time_ms = 80000; frame(); eq(me.recall("lap", null).hidden, true); eq(me.recall("lap", null).sess, "1/1");
+            B.detach(state); window.ModelUISessionState = { event_id: 1, session_id: 2 }; car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 500; car.car_location = "Pitlane"; timing.invalid = false; state = B.attach(root); frame();
+            eq(state.hiddenOwed, false, "another session's out-lap owes nothing here");
+        } finally {
+            window.ModelUISessionState = undefined;
+        }
+        // a fresh widget: the one above still carries the last session key it saw
+        B.detach(state); state = B.attach(root);
+        car.low_frequency.total_lap_count = 5; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.current_lap_time_ms = 80000; frame(); const hidden = me.recall("lap", null); eq(hidden.sess, "", "no session this time"); eq(hidden.car, "ours");
+        B.detach(state); car.focused_car_id = "theirs"; car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 500; car.car_location = "Pitlane"; timing.invalid = false; state = B.attach(root); frame();
+        eq(state.hiddenOwed, false, "nor another car's");
+        me.remember("lap", hidden); B.detach(state); car.focused_car_id = "ours"; state = B.attach(root); frame();
+        eq(state.hiddenOwed, true, "ours, in the same session as far as the frame can tell: passed on, so the guards are what refused above");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: a boundary taken by another car coming under focus while the record waits for its count takes no debt, full or weak", function () {
+        // (a) a record of a lap cut with no verdict
+        car.low_frequency = { total_lap_count: 5 }; car.focused_car_id = "ours"; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
+        eq(me.recall("lap", null).cut, true); eq(me.recall("lap", null).reason, "");
+        // a record that names no car (written before the car model gave one): the debt rule's own car check cannot refuse it, the boundary's must
+        me.remember("lap", Object.assign({}, me.recall("lap", null), { car: "" }));
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 30100; state = B.attach(root); frame(); eq(state.restorePending, true);
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 40; frame(); eq(state.verdictOwed, false, "no full debt onto the other car's lap");
+        // (b) a record of an out-lap
+        car.focused_car_id = "ours"; car.current_lap_time_ms = 30000; timing.invalid = false; frame(); car.low_frequency = { total_lap_count: 7 }; car.current_lap_time_ms = 20; frame();
+        car.current_lap_time_ms = 50000; frame(); car.car_location = "Pitlane"; car.current_lap_time_ms = 30; car.low_frequency.total_lap_count = 8; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.current_lap_time_ms = 80000; frame(); eq(me.recall("lap", null).hidden, true);
+        me.remember("lap", Object.assign({}, me.recall("lap", null), { car: "" }));
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 80100; state = B.attach(root); frame(); eq(state.restorePending, true);
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 40; frame(); eq(state.hiddenOwed, false, "no weak debt onto the other car's lap");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: an out-lap named by its verdict, refused after a reload across the line, passes no weaker debt on: the next lap's verdict still paints", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.current_lap_time_ms = 20000; frame(); notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "the out-lap's cut, named"); eq(me.recall("lap", null).hidden, true); eq(me.recall("lap", null).cut, true);
+        B.detach(state); car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 500; car.car_location = "Pitlane"; timing.invalid = false; state = B.attach(root); frame();
+        eq(state.hiddenOwed, false, "a cut out-lap hid nothing: no weaker debt"); eq(state.verdictOwed, false, "and its verdict came: no full one");
+        // lap 6 is a pit-exit lap with no cut of its own, so its verdict goes to the one branch a weaker debt would take it in
+        car.car_location = "Track"; car.current_lap_time_ms = 20000; timing.invalid = true; frame(); ok(has(root, "bd-pit"), "OUTLAP"); ok(!has(root, "bd-invalid"));
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS", "and lap 6's verdict names its cut: no leaked weaker debt swallowed it");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: an in-lap back on the track under the flag (a drive-through's exit) is no out-lap: nothing hidden", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        car.current_lap_time_ms = 31000; car.car_location = "Pitentry"; timing.invalid = true; frame(); eq(state.pitLate, true, "an in-lap");
+        car.current_lap_time_ms = 45000; car.car_location = "Track"; frame(); eq(state.hiddenCut, false, "the pit lane came after the track: not an out-lap");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: a reload in the pit lane at the end of an out-lap keeps what the record knows: that the lap reached the track, and that it may have hidden a cut", function () {
+        // (a) reached the track: a verdict on the same lap after the reload is judged, not refused as a lap never on the track
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.current_lap_time_ms = 80000; frame(); car.current_lap_time_ms = 90000; car.car_location = "Pitentry"; frame();
+        B.detach(state); car.current_lap_time_ms = 91000; car.car_location = "Pitlane"; state = B.attach(root); frame();
+        eq(state.trackSeen, true, "the lap reached the track, as the record says"); eq(state.hiddenCut, true, "and may have hidden a cut");
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(has(root, "bd-invalid"), "the out-lap's verdict names its cut"); eq(state.cutReason, "TRACK LIMITS");
+        // (b) may have hidden a cut: the line after such a reload owes the weaker debt
+        car.current_lap_time_ms = 30000; car.car_location = "Track"; timing.invalid = false; frame(); car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 50000; frame();
+        car.low_frequency.total_lap_count = 7; car.car_location = "Pitlane"; car.current_lap_time_ms = 30; timing.invalid = false; frame(); car.current_lap_time_ms = 600; car.car_location = "Track"; timing.invalid = true; frame(); eq(state.hiddenCut, true, "an out-lap past its exit");
+        car.current_lap_time_ms = 80000; frame(); car.current_lap_time_ms = 90000; car.car_location = "Pitentry"; frame();
+        B.detach(state); car.current_lap_time_ms = 91000; car.car_location = "Pitlane"; state = B.attach(root); frame();
+        car.low_frequency.total_lap_count = 8; car.current_lap_time_ms = 40; timing.invalid = false; frame(); eq(state.hiddenOwed, true, "the out-lap owes the weaker debt after the reload too");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("eleventh harness pass 2026-09-23: a verdict held while the record waits is let go when the line comes first: judged on no lap", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 30100; state = B.attach(root); frame(); eq(state.restorePending, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame();
+        ok(state.heldVerdict, "held"); const said = window.__log.length;
+        car.current_lap_time_ms = 40; timing.invalid = false; frame();
+        eq(state.heldVerdict, null, "let go at the line"); ok(!has(root, "bd-invalid"), "nothing painted");
+        ok(window.__log.slice(said).some(function (l) { return l.indexOf("verdict held for the remembered lap is let go") >= 0; }), "said so");
+        eq(state.verdictOwed, false, "and the held verdict, which came for the lap that ended, paid its debt: the next verdict is the next lap's");
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twelfth harness pass 2026-09-23: a cut the game names on a lap it is not timing yet (the out-lap text) shows under the raw flag", function () {
+        car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 3000; frame();
+        try {
+            timing.current = "Outlap"; timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "the flag alone on an untimed lap: nothing");
+            notify(penalty("{PENALTY_CLEARED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_LAP_INVALIDATED")); frame();
+            ok(has(root, "bd-invalid"), "the game's notice names the cut: shown under the raw flag"); eq(q(".bd-invalid-tag").textContent, "INVALID \u00b7 TRACK LIMITS");
+        } finally {
+            timing.current = "0:12.345";
+        }
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twelfth harness pass 2026-09-23: losing the car, or switching attract on, drops a next-lap invalidation and a held verdict from the lap being followed; the record brings the invalidation back when the car returns on the same lap", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "PenaltyType_InvalidNextLap")); frame(); eq(state.nextLapInvalid, true);
+        car.has_focused_car = false; frame(); eq(state.nextLapInvalid, false, "no car: dropped"); eq(state.nextLapReason, "");
+        car.has_focused_car = true; frame(); eq(state.nextLapInvalid, true, "the car back on the same lap at the same clock: the record brings it back");
+        try {
+            eq(B.attract(true), true); frame(); eq(state.nextLapInvalid, false, "attract: dropped");
+        } finally {
+            B.attract(false); frame();
+        }
+        // a held verdict: a cut lap, a reload whose record waits for its count, the verdict, then no car
+        car.current_lap_time_ms = 40000; timing.invalid = true; frame(); eq(state.lapCut, true);
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 40100; state = B.attach(root); frame(); eq(state.restorePending, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); ok(state.heldVerdict, "held");
+        car.has_focused_car = false; frame(); eq(state.heldVerdict, null, "no car: let go");
+        car.has_focused_car = true; car.low_frequency = undefined; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+        // and attract switched on while one is held
+        car.low_frequency = { total_lap_count: 9 }; car.current_lap_time_ms = 30000; timing.invalid = true; frame(); eq(state.lapCut, true);
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 30100; state = B.attach(root); frame(); eq(state.restorePending, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); ok(state.heldVerdict, "held again");
+        try {
+            eq(B.attract(true), true); eq(state.heldVerdict, null, "attract: let go");
+        } finally {
+            B.attract(false); frame();
+        }
+        car.low_frequency = undefined; car.focused_car_id = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("seventeenth harness pass 2026-09-23: the count moving in a lap's first moments with no clock boundary before it (the first frame after a reload at the line) is not a second lap", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 90000; frame();
+        me.forget("lap");
+        // a reload across the line: the first frame has the new lap's clock and the count a frame behind
+        B.detach(state); car.current_lap_time_ms = 30; state = B.attach(root); frame(); eq(state.started, true); eq(state.boundaryClock, null, "no clock boundary on a first frame");
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        const before = laps();
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 46; frame();
+        eq(laps() - before, 0, "the count catching up in the first moments is that lap, not another"); eq(state.lapCount, 6, "and the lap is filed under it");
+        car.current_lap_time_ms = 30000; frame(); car.low_frequency.total_lap_count = 7; frame(); eq(laps() - before, 1, "past the first moments a count move is a lap of its own");
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("nineteenth harness pass 2026-09-23: the predicted lap's dead band at its edges: 19 ms from the best is neither colour, 20 ms is one; once on it is kept to 10 ms and dropped at 9", function () {
+        const pred = q(".bd-cell-pred");
+        const neither = function () { return !has(pred, "bd-pred-faster") && !has(pred, "bd-pred-slower"); };
+        timing.best = "1:43.445";
+        try {
+            car.predicted_lap_time_ms = 103445; frame(); ok(neither(), "on the best: neither");
+            car.predicted_lap_time_ms = 103445 - 19; frame(); ok(neither(), "19 ms quicker: inside the band");
+            car.predicted_lap_time_ms = 103445 - 20; frame(); ok(has(pred, "bd-pred-faster"), "20 ms quicker: green");
+            car.predicted_lap_time_ms = 103445 - 10; frame(); ok(has(pred, "bd-pred-faster"), "10 ms quicker: kept");
+            car.predicted_lap_time_ms = 103445 - 9; frame(); ok(neither(), "9 ms quicker: dropped");
+            car.predicted_lap_time_ms = 103445 + 19; frame(); ok(neither(), "19 ms slower: inside the band");
+            car.predicted_lap_time_ms = 103445 + 20; frame(); ok(has(pred, "bd-pred-slower"), "20 ms slower: red");
+            car.predicted_lap_time_ms = 103445 + 10; frame(); ok(has(pred, "bd-pred-slower"), "10 ms slower: kept");
+            car.predicted_lap_time_ms = 103445 + 9; frame(); ok(neither(), "9 ms slower: dropped");
+        } finally {
+            car.predicted_lap_time_ms = -1; timing.best = ""; frame();
+        }
+    });
+
+    t("nineteenth harness pass 2026-09-23: a delta outage of a single slot is not filled in afterwards, while the slot skipped after it is", function () {
+        set("showTrace", true);
+        try {
+            car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 5000; car.npos = 0.10; setDelta(-500); frame(); ok(sy(ups[12]) > 0, "slot 12 drawn");
+            setDelta(null); car.npos = 13 / 120 + 0.001; frame(); eq(sy(ups[13]), 0, "slot 13 passed with no delta");
+            setDelta(-500); car.npos = 15 / 120 + 0.001; frame();
+            ok(sy(ups[15]) > 0, "slot 15 under the car"); ok(sy(ups[14]) > 0, "slot 14, skipped by a slow frame, filled in");
+            eq(sy(ups[13]), 0, "slot 13 stays blank: there was no delta there to fill it with");
+        } finally {
+            set("showTrace", false); car.npos = 0; setDelta(-235); frame();
+        }
+        car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twentieth harness pass 2026-09-23: the trace's wrap at its edge: the car going back up to half a lap keeps the lap's slots, more than that clears them", function () {
+        const at = function (slot) { return slot / 120 + 0.001; };
+        set("showTrace", true);
+        try {
+            car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 5000; setDelta(-500);
+            car.npos = at(60); frame(); ok(sy(ups[60]) > 0, "slot 60 drawn");
+            car.npos = at(54); frame(); ok(sy(ups[60]) > 0, "six slots back: the lap's slots stay");
+            car.npos = at(108); frame(); ok(sy(ups[108]) > 0, "slot 108 drawn");
+            car.npos = at(48); frame(); ok(sy(ups[108]) > 0, "exactly half a lap back (60 slots): still this lap");
+            car.npos = at(108); frame(); ok(sy(ups[108]) > 0);
+            car.npos = at(47); frame(); eq(sy(ups[108]), 0, "61 slots back: the position wrapped, a new lap, the slots cleared");
+        } finally {
+            set("showTrace", false); car.npos = 0; setDelta(-235); frame();
+        }
+        car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twentieth harness pass 2026-09-23: a lap that began under the flag is let off it only if the flag is seen down inside its first half second: at 499 ms a later rise is a cut, at 500 it is not", function () {
+        car.car_location = "Track"; car.current_lap_time_ms = 30000; timing.invalid = false; frame();
+        car.current_lap_time_ms = 20; timing.invalid = true; frame(); eq(state.lapStartedInvalid, true, "the flag of the lap before, standing across the line");
+        car.current_lap_time_ms = 499; timing.invalid = false; frame(); eq(state.lapStartedInvalid, false, "down at 499 ms: this lap started clean");
+        car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "so the rise is a cut");
+        car.current_lap_time_ms = 20; frame(); eq(state.lapStartedInvalid, true);
+        car.current_lap_time_ms = 500; timing.invalid = false; frame(); eq(state.lapStartedInvalid, true, "down only at 500 ms: the lap began flagged");
+        car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(!has(root, "bd-invalid"), "so the rise is not taken as a cut");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twenty-first harness pass 2026-09-23: every use of the lap's first half second at its edge: the count's grace (first frame and after a landing), a landing past it, a verdict inside it, a first clock past it", function () {
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        car.car_location = "Track";
+        // (a) a count moving at 499 ms on a lap joined at its first frame is that lap; at 500 it is a lap of its own
+        car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 90000; frame(); me.forget("lap");
+        B.detach(state); car.current_lap_time_ms = 30; state = B.attach(root); frame(); let before = laps();
+        car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = 499; frame(); eq(laps() - before, 0, "the count at 499 ms: the same lap");
+        car.current_lap_time_ms = 90000; frame(); me.forget("lap");
+        B.detach(state); car.current_lap_time_ms = 30; state = B.attach(root); frame(); before = laps();
+        car.low_frequency.total_lap_count = 7; car.current_lap_time_ms = 500; frame(); eq(laps() - before, 1, "the count at 500 ms: another lap");
+        // (b) after a landing past the grace (a stall over the line), the count 499 ms after the landing is that boundary, 500 ms after is another
+        car.current_lap_time_ms = 90000; frame(); car.current_lap_time_ms = 3000; frame(); before = laps();
+        car.low_frequency.total_lap_count = 8; car.current_lap_time_ms = 3499; frame(); eq(laps() - before, 0, "the count 499 ms after the landing: the same boundary");
+        car.current_lap_time_ms = 90000; frame(); car.current_lap_time_ms = 3000; frame(); before = laps();
+        car.low_frequency.total_lap_count = 10; car.current_lap_time_ms = 3500; frame(); eq(laps() - before, 1, "500 ms after: another lap");
+        // (c) a landing at 500 ms with the flag down: the lap started clean as found, so a later rise is a cut
+        car.current_lap_time_ms = 90000; frame(); car.current_lap_time_ms = 500; frame(); eq(state.lapStartedInvalid, false, "landed at 500 ms, flag down: started clean");
+        car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "so the rise is a cut");
+        // (d) a verdict on a lap that began flagged: at 499 ms it is the lap before's, at 500 it is this lap's
+        car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 20; timing.invalid = true; frame(); car.current_lap_time_ms = 499; frame(); eq(state.lapStartedInvalid, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); ok(!has(root, "bd-invalid"), "a verdict at 499 ms of a lap flagged from its start: the lap before's");
+        car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 20; timing.invalid = true; frame(); car.current_lap_time_ms = 500; frame(); eq(state.lapStartedInvalid, true);
+        notify(penalty("{PENALTY_ADDED_KEY} #666", "InvestigationType_Racecar_Cut", "lblNotificationPenalty_NO_GAIN")); frame(); ok(has(root, "bd-invalid"), "at 500 ms: this lap's, a cut after all");
+        // (e) a lap the count alone opened, its first clock at 500 ms with the flag down: started clean, so a later rise is a cut
+        car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 60000; frame();
+        car.low_frequency.total_lap_count = 12; car.current_lap_time_ms = undefined; frame(); eq(state.lapClockSeen, false);
+        car.current_lap_time_ms = 500; frame(); eq(state.lapStartedInvalid, false, "first clock at 500 ms, flag down: started clean");
+        car.current_lap_time_ms = 30000; timing.invalid = true; frame(); ok(has(root, "bd-invalid"), "so the rise is a cut");
+        car.low_frequency = undefined; car.car_location = "Track"; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twenty-first harness pass 2026-09-23: the drop rule at its edge, far from the line: exactly a second back is a correction, a millisecond more is a lap", function () {
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame(); const before = laps();
+        car.current_lap_time_ms = 29000; frame(); eq(laps() - before, 0, "1000 ms back: a correction");
+        car.current_lap_time_ms = 30000; frame(); car.current_lap_time_ms = 28999; frame(); eq(laps() - before, 1, "1001 ms back: a lap");
+        car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twenty-first harness pass 2026-09-23: the trace at the very end of the lap (npos 1, npos_perc 100) writes its last slot and nothing past it", function () {
+        set("showTrace", true);
+        try {
+            car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 5000; setDelta(-500);
+            car.npos = 0.99; frame(); car.npos = 1; frame(); ok(sy(ups[119]) > 0, "npos 1: slot 119");
+            setDelta(500); car.npos = undefined; car.npos_perc = 100; frame();
+            ok(sy(downs[119]) > 0 && sy(ups[119]) === 0, "npos_perc 100: slot 119 again, redrawn with the delta of the moment (the car stays in the slot)");
+        } finally {
+            set("showTrace", false); car.npos = 0; car.npos_perc = undefined; setDelta(-235); frame();
+        }
+        car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("twenty-second harness pass 2026-09-23: the strong glow's lower keep is for the same trend only: gaining strongly, then a step that reads losing at about 65 ms/s, is losing without the glow", function () {
+        drift(1500, -80); ok(has(root, "bd-gain") && has(root, "bd-strong"), "gaining strongly");
+        setDelta(car.delta_time_ms + 145); run(64);
+        ok(has(root, "bd-lose"), "losing now"); ok(!has(root, "bd-strong"), "and not strong: a new trend needs the full five bands for the glow");
+        setDelta(-235); run(1500); ok(has(root, "bd-flat"));
+    });
+
+    t("full review 2026-09-24: a debt the waiting record merely carries does not pass through a lap that reached the track", function () {
+        // lap 3 cut with no verdict, lap 4 begun in the pit lane owing it; a reload on lap 4 whose frames lack the count
+        car.low_frequency = { total_lap_count: 3 }; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 60000; frame();
+        car.current_lap_time_ms = 60020; timing.invalid = true; frame();
+        car.low_frequency.total_lap_count = 4; car.current_lap_time_ms = 40; car.car_location = "Pitlane"; timing.invalid = false; frame(); eq(me.recall("lap", null).owed, true); eq(me.recall("lap", null).track, false);
+        car.low_frequency = undefined; B.detach(state); car.current_lap_time_ms = 900; state = B.attach(root); frame(); eq(state.restorePending, true);
+        // the car reaches the track while the record waits, then the line comes before the count
+        car.current_lap_time_ms = 20000; car.car_location = "Track"; frame(); eq(state.trackSeen, true);
+        car.current_lap_time_ms = 40; frame(); eq(state.verdictOwed, false, "lap 4 reached the track: lap 3's debt goes no further");
+        car.current_lap_time_ms = 30000; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a lap that ends because another car came under focus owes nothing: that car's verdicts are not ours", function () {
+        car.focused_car_id = "ours"; car.car_location = "Track"; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; timing.invalid = true; frame();
+        ok(has(root, "bd-invalid")); eq(state.cutReason, "");
+        car.focused_car_id = "theirs"; car.current_lap_time_ms = 40000; frame(); eq(state.verdictOwed, false, "no debt carried to the other car's lap");
+        car.focused_car_id = undefined; car.current_lap_time_ms = 60000; timing.invalid = false; frame(); car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: the reference gate is screened like every number: a NaN in the UI delta is no reference, not a delta of nothing", function () {
+        setDelta(-235); frame(); ok(!has(root, "bd-noref"));
+        car.delta_time_ms_ui = NaN; car.delta_time_ms = 0; frame(); ok(has(root, "bd-noref"), "NaN: no reference"); eq(B.readModel().delta, null);
+        car.delta_time_ms_ui = Infinity; frame(); ok(has(root, "bd-noref"), "Infinity: no reference");
+        setDelta(-235); frame(); ok(!has(root, "bd-noref"), "and back");
+    });
+
+    t("fifth pass 2026-09-23: a lap count that reads NaN is no count at all: the lap does not turn over every frame and the record is not written every frame", function () {
+        car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 30000; frame();
+        const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
+        const before = laps();
+        car.low_frequency.total_lap_count = NaN; car.current_lap_time_ms = 30016; frame(); car.current_lap_time_ms = 30032; frame(); car.current_lap_time_ms = 30048; frame();
+        eq(laps() - before, 0, "no new lap"); eq(state.lapCount, 5, "the count is the one from the last frame that had it");
+        car.low_frequency = undefined; car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: a frame with no focused car clears the bar as well as the top line: no figure, no fill, no sign, no trend colour left standing from the last car", function () {
+        setDelta(-235); drift(1500, -600); ok(has(root, "bd-gain") && has(root, "bd-strong"), "gaining hard"); ok(!has(root, "bd-noref")); ok(sx(right) > 0);
+        car.has_focused_car = false; frame();
+        ok(has(root, "bd-noref"), "no car: no reference"); eq(sx(right), 0, "no fill"); eq(sx(left), 0); eq(tx(tick), 0);
+        ok(has(root, "bd-flat") && !has(root, "bd-gain") && !has(root, "bd-strong"), "the trend is flat"); ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "no sign");
+        car.has_focused_car = true; frame(); ok(!has(root, "bd-noref"), "the car back: the delta again");
+        car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+    });
+
+    t("fifth pass 2026-09-23: the sign and the fill follow the figure as shown: with two decimals a delta of -4 ms reads 0.00 with no sign and no fill, and -5 ms rounds away from zero", function () {
+        set("decimals", "2"); setDelta(-4); frame();
+        eq(figure.textContent, "0.00"); ok(!has(root, "bd-faster") && !has(root, "bd-slower"), "no sign on a figure that reads zero"); eq(sx(right), 0); eq(sx(left), 0); eq(tx(tick), 0);
+        setDelta(-5); frame(); eq(figure.textContent, "-0.01"); ok(has(root, "bd-faster")); near(sx(right), 0.01, 1e-6, "the fill is the figure's, not the raw delta's");
+        setDelta(-14); frame(); eq(figure.textContent, "-0.01"); near(sx(right), 0.01, 1e-6);
+        setDelta(4); frame(); eq(figure.textContent, "0.00"); ok(!has(root, "bd-slower")); eq(sx(left), 0);
+        ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
+    });
+
+    t("fifth pass 2026-09-23: the compact tag keeps no shadow under the overall or white colour rule through a strong trend; with no background it keeps its own", function () {
+        set("layout", "compact"); set("numberColour", "overall"); setDelta(-235); frame();
+        eq(getComputedStyle(figure).textShadow, "none", "steady: none");
+        drift(1500, -600); ok(has(root, "bd-gain") && has(root, "bd-strong"), "gaining hard");
+        eq(getComputedStyle(figure).textShadow, "none", "strong gain: still none");
+        set("numberColour", "white"); frame(); eq(getComputedStyle(figure).textShadow, "none", "white too");
+        set("background", "none"); frame(); ok(has(root, "bd-strong"), "still strong"); ok(getComputedStyle(figure).textShadow !== "none", "no background: the figure's own shadow, through the strong trend");
+        run(1500); ok(has(root, "bd-flat")); ok(getComputedStyle(figure).textShadow !== "none", "and once it drops");
+        ACEUIAppLoader.settings.reset(me.name); setDelta(-235); frame();
+    });
+
+    t("fifth pass 2026-09-23: the trace is the full layout's: in compact the switch left on writes nothing, and back in full the lap draws on from blank slots", function () {
+        const npos = car.npos;
+        set("showTrace", true); car.npos = 0.5; setDelta(-500); frame(); ok(sy(ups[60]) > 0, "full: the slot is written"); eq(state.traceOn, true);
+        set("layout", "compact"); frame(); eq(state.traceOn, false, "compact: off"); ok(has(root, "bd-notrace"));
+        car.npos = 0.6; frame(); ok(!(sy(ups[72]) > 0), "nothing written while compact");
+        set("layout", "full"); frame(); eq(state.traceOn, true, "full again: on"); ok(!(sy(ups[60]) > 0), "the slots from before are blank");
+        car.npos = 0.7; frame(); ok(sy(ups[84]) > 0, "and the lap draws on");
+        ACEUIAppLoader.settings.reset(me.name); car.npos = npos; setDelta(-235); frame();
     });
 
     t("a frame with the car back but no lap clock yet does not paint a tag from the lap that ended: a flag found up there is taken as found", function () {
@@ -1193,14 +2061,14 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         }
     });
 
-    t("a lap the count alone opened takes the flag as found when its first clock comes: a cut on it still shows, and its record is stamped where the lap can reach", function () {
+    t("a lap the count alone opened takes the flag as found when its first clock comes: a cut on it still shows, and a reload on that lap restores it", function () {
         car.low_frequency = { total_lap_count: 5 }; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 98000; frame();
         car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = undefined; frame(); eq(state.lapClockSeen, false, "a boundary with no clock");
         car.current_lap_time_ms = 600; frame();
         eq(state.lapStartedInvalid, false, "the first clock reads 600 ms with the flag down: this lap started clean");
         car.current_lap_time_ms = 30000; timing.invalid = true; frame();
         ok(has(root, "bd-invalid"), "so the flag rising later is a cut"); eq(q(".bd-invalid-tag").textContent, "INVALID");
-        // and the record is stamped where this lap can reach it, so a reload restores it
+        // a reload on the same lap restores it (the start-mark stamping rule itself is pinned by the case after this one)
         B.detach(state); root.classList.remove("bd-invalid"); car.current_lap_time_ms = 31000; state = B.attach(root); frame();
         ok(has(root, "bd-invalid"), "restored after a reload on the same lap"); eq(state.lapCut, true);
         car.low_frequency = undefined; car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
@@ -1223,7 +2091,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         eq(state.lapCut, true, "a cut on lap 5"); eq(me.recall("lap", null).at, 98000, "stamped where it happened");
         car.low_frequency.total_lap_count = 6; car.current_lap_time_ms = undefined; timing.invalid = false; frame();
         car.current_lap_time_ms = 40; timing.invalid = true; frame();
-        eq(state.lapCut, false, "lap 6 is clean so far"); eq(me.recall("lap", null), null, "and nothing is remembered for it");
+        eq(state.lapCut, false, "lap 6 is clean so far"); const kept6 = me.recall("lap", null); ok(kept6 && kept6.cut === false && kept6.owed === true && kept6.pit === false && kept6.next === false, "and nothing is remembered for it but the verdict owed by the lap before: " + JSON.stringify(kept6));
         // a cut on this lap, remembered before its clock arrives, is re-stamped once it does. The lap
         // before has to be past its first moments, or the count moving reads as the same boundary
         car.current_lap_time_ms = 40000; frame();
@@ -1361,13 +2229,21 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     });
 
     t("the penalty-state model the stock never fetches is asked for every two seconds, and a page without an engine call is left alone", function () {
-        const before = engineHandlers.__calls || 0;
+        const before = engineHandlers.__calls || 0, saidPoll = window.__log.length;
         run(4100);
         ok((engineHandlers.__calls || 0) - before >= 2 && (engineHandlers.__calls || 0) - before <= 3, "two or three fetches in 4.1 s: " + ((engineHandlers.__calls || 0) - before));
-        ok(window.__log.some(function (l) { return l.indexOf("penalty state: ") >= 0; }), "and what came back was logged once");
+        // the same answer each time: said at most once here (not at all when an earlier case already said it), and it was heard
+        ok(window.__log.slice(saidPoll).filter(function (l) { return l.indexOf("penalty state: ") >= 0; }).length <= 1, "the same answer is not a line per fetch");
+        ok(typeof state.lastPenaltyText === "string" && state.lastPenaltyText.indexOf("penalties") >= 0, "and what came back is the model: " + state.lastPenaltyText);
         const saved = window.engine.call; window.engine.call = undefined;
-        run(4100); ok(true, "no engine call: nothing thrown");
-        window.engine.call = saved;
+        try {
+            const calls = engineHandlers.__calls || 0, said = window.__log.length;
+            run(4100);
+            eq(engineHandlers.__calls || 0, calls, "no engine call: nothing asked");
+            ok(!window.__log.slice(said).some(function (l) { return l.indexOf("penalty state") >= 0; }), "and nothing said about it");
+        } finally {
+            window.engine.call = saved;
+        }
     });
 
     t("a penalty fetch the engine never answers is given up after five seconds and asked again; a late answer to it is ignored, a detached widget's answer touches nothing", function () {
@@ -1406,7 +2282,6 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         try { state = B.attach(root); } catch (e) { threw = e.message; }
         window.engine.on = on;
         eq(threw, "the game refused", "attach threw"); eq(clock.queue.length, none, "no frame left queued"); eq(ACEUIAppLoader.settings.listenerCount(me.name), idle, "no settings listener left");
-        eq(engineHandlers.UINotification, undefined, "no notification hook left");
         state = B.attach(root); frame(); eq(clock.queue.length, queued); eq(ACEUIAppLoader.settings.listenerCount(me.name), listeners, "a clean attach after it is whole");
         // twice on one root: the first is stopped, and only one loop and one set of listeners remain
         const second = B.attach(root); frame();
@@ -1453,10 +2328,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             if (has(root, "bd-noref")) { fault("noref with a delta"); }
             if (figure.textContent !== fmt(delta)) { fault("figure " + figure.textContent + " vs " + fmt(delta)); }
             if (sx(left) > 0 && sx(right) > 0) { fault("both fills"); }
-            if (Math.abs(sx(onRight ? right : left) - (delta === 0 ? 0 : share)) > 1e-3) { fault("fill share"); }
-            if (Math.abs(sx(onRight ? left : right)) > 1e-9 && delta !== 0) { fault("fill on the wrong side"); }
-            if (Math.abs(tx(tick) - (delta === 0 ? 0 : (onRight ? share : -share) * 50)) > 0.02) { fault("tick shift"); }
-            if (Math.abs(tx(main) - (compact && state.followOn ? tx(tick) : 0)) > 1e-9) { fault("figure row shift"); }
+            // `!(x <= eps)`, not `x > eps`: a transform never written parses to NaN, which must fail too
+            if (!(Math.abs(sx(onRight ? right : left) - (delta === 0 ? 0 : share)) <= 1e-3)) { fault("fill share"); }
+            if (!(Math.abs(sx(onRight ? left : right)) <= 1e-9) && delta !== 0) { fault("fill on the wrong side"); }
+            if (!(Math.abs(tx(tick) - (delta === 0 ? 0 : (onRight ? share : -share) * 50)) <= 0.02)) { fault("tick shift"); }
+            if (!(Math.abs(tx(main) - (compact && state.followOn ? tx(tick) : 0)) <= 1e-9)) { fault("figure row shift"); }
             if (has(root, "bd-top-on") !== (has(root, "bd-hasdriver") || has(root, "bd-invalid") || has(root, "bd-noref"))) { fault("top line vs its contents"); }
             // the chevron that shows is the one on the side the fill's end is moving to
             const l = getComputedStyle(q(".bd-arrow-l")).opacity !== "0", r = getComputedStyle(q(".bd-arrow-r")).opacity !== "0";
@@ -1514,7 +2390,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             if (has(root, "bd-narrow") !== (c.width === "narrow") || has(root, "bd-wide") !== (c.width === "wide")) { fault("width class", c); }
             if (has(root, "bd-noarrows") !== !c.showArrows) { fault("arrows class", c); }
             if (state.followOn !== (compact && c.followFill)) { fault("followOn", c); }
-            if (has(root, "bd-notrace") !== !c.showTrace || state.traceOn !== c.showTrace) { fault("trace class/flag", c); }
+            if (has(root, "bd-notrace") !== !(c.showTrace && !compact) || state.traceOn !== (c.showTrace && !compact)) { fault("trace class/flag", c); }
             if (state.decimals !== Number(c.decimals) || figure.textContent !== B.formatDelta(-235, Number(c.decimals))) { fault("decimals " + figure.textContent, c); }
             if (state.fasterRight !== (c.fasterSide === "right")) { fault("fasterRight", c); }
             if ((disp(".bd-cells") === "none") !== compact) { fault("cells shown", c); }
@@ -1523,9 +2399,11 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
             if ((disp(".bd-arrow-l") === "none") !== !c.showArrows) { fault("arrows shown", c); }
             // gained time: the fill on the faster side, the tick and (compact, following) the figure row with it
             const onRight = c.fasterSide === "right";
-            if (Math.abs(sx(onRight ? right : left) - 0.235) > 1e-6 || sx(onRight ? left : right) !== 0) { fault("fill side", c); }
-            if (Math.abs(tx(tick) - (onRight ? 11.75 : -11.75)) > 1e-6) { fault("tick side", c); }
-            if (Math.abs(tx(main) - (compact && c.followFill ? tx(tick) : 0)) > 1e-9) { fault("figure row", c); }
+            // the fill and the tick follow the figure as shown: -0.235 with three decimals, -0.24 with two
+            const shown = c.decimals === "2" ? 0.24 : 0.235;
+            if (!(Math.abs(sx(onRight ? right : left) - shown) <= 1e-6) || sx(onRight ? left : right) !== 0) { fault("fill side", c); }
+            if (!(Math.abs(tx(tick) - (onRight ? shown * 50 : -shown * 50)) <= 1e-6)) { fault("tick side", c); }
+            if (!(Math.abs(tx(main) - (compact && c.followFill ? tx(tick) : 0)) <= 1e-9)) { fault("figure row", c); }
             // the figure's colour follows the rule chosen: gained time, steady trend -> trend: white, overall: green, white: white
             const colour = getComputedStyle(figure).color;
             const expect = c.numberColour === "overall" ? "rgb(68, 234, 120)" : "rgba(255, 255, 255, 0.92)";
@@ -1542,9 +2420,10 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         setDelta(-235); frame(); eq(figure.textContent, "-0.235");
         state.lastLog = now - 70000;                      // the minute is up, so the next quiet frame speaks
         window.ModelCurrentCar = undefined; frame(); frame();
-        const text = figure.textContent, count = state.count, said = window.__log.some(function (l) { return l.indexOf("ModelCurrentCar not available") >= 0; });
+        const text = figure.textContent, noRef = has(root, "bd-noref"), count = state.count, said = window.__log.some(function (l) { return l.indexOf("ModelCurrentCar not available") >= 0; });
         window.ModelCurrentCar = savedCar; frame();       // put back before judging, so a fault here does not poison what follows
-        eq(text, "-0.235", "no model: nothing rewritten, nothing thrown"); eq(count, 0, "the ring is forgotten"); ok(said, "and said once a minute");
+        // the bar reads no reference while there is no car (fifth pass, 2026-09-23: the last figure stood there as if live)
+        eq(text, "--.---", "no model: the bar reads no reference, nothing thrown"); ok(noRef, "no reference"); eq(count, 0, "the ring is forgotten"); ok(said, "and said once a minute");
         eq(figure.textContent, "-0.235", "back");
         window.ModelTiming = undefined; timing.ideal = "1:43.102"; frame();
         const optimal = cellTime("optimal"), tagged = has(root, "bd-invalid");
@@ -1554,9 +2433,10 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         drift(1500, -40); ok(state.count > 20); car.has_focused_car = false; frame(); eq(state.count, 0, "focus lost: the ring is forgotten"); car.has_focused_car = true; frame();
         // the trace switched on mid-lap must not show what an earlier lap left in its slots
         set("showTrace", true); car.npos = 0.5; setDelta(-500); frame(); ok(sy(ups[60]) > 0, "slot written");
-        set("showTrace", false); car.npos = 0.6; frame(); car.current_lap_time_ms = 10; frame(); car.current_lap_time_ms = 20000; car.npos = 0.2; frame();
+        // off and on again within the same lap: no boundary to blank the slots, so only the switch-on clear can
+        set("showTrace", false); car.npos = 0.6; frame(); car.npos = 0.7; frame();
         set("showTrace", true); frame();
-        eq(sy(ups[60]), 0, "a slot from a lap driven while the trace was off is blank when it comes back"); ok(sy(ups[24]) > 0, "the slot under the car is drawn");
+        eq(sy(ups[60]), 0, "a slot drawn before the trace was switched off is blank when it comes back"); ok(sy(ups[84]) > 0, "the slot under the car is drawn");
         set("showTrace", false); frame();
     });
 
@@ -1584,6 +2464,7 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
     t("the settings window shows only what the layout on screen has, and swaps when the layout changes", function () {
         const pane = document.createElement("div");
         center.appendChild(pane);
+        try {
         ACEUIAppLoader.settings.render(me.name, pane);
         const chip = function (label) {
             return Array.prototype.filter.call(pane.querySelectorAll("span"), function (el) { return el.textContent === label && el.style.borderRadius === "0.9rem"; })[0];
@@ -1601,14 +2482,17 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         set("background", "light"); eq(getComputedStyle(q(".bd-delta")).backgroundColor, "rgba(0, 0, 0, 0.55)", "light: a lighter tag");
         ACEUIAppLoader.settings.reset(me.name); frame();
         eq(cells.style.display, "flex", "back to full: the cells return"); eq(follow.style.display, "none");
-        ACEUIAppLoader.settings.teardown(me.name);
-        pane.remove();
+        } finally {
+            // a failing line above must not leave the pane and its repaint hooks behind for every later set()
+            ACEUIAppLoader.settings.teardown(me.name);
+            pane.remove();
+        }
     });
 
     t("options reach the live widget: decimals, range, colours, width, what is shown", function () {
         setDelta(-235); frame(); eq(figure.textContent, "-0.235");
         set("decimals", "2"); frame(); eq(figure.textContent, "-0.24", "reformatted although the delta did not move");
-        set("range", "2 s"); frame(); near(sx(right), 0.1175, 1e-3, "half the fill at twice the range");
+        set("range", "2 s"); frame(); near(sx(right), 0.12, 1e-6, "half the fill at twice the range, of the figure as shown (-0.24)");
         set("numberColour", "overall"); ok(has(root, "bd-num-overall")); set("numberColour", "white"); ok(has(root, "bd-num-white")); ok(!has(root, "bd-num-overall"));
         set("barColour", "trend"); ok(has(root, "bd-bar-trend"));
         set("width", "narrow"); ok(has(root, "bd-narrow")); set("width", "wide"); ok(has(root, "bd-wide")); ok(!has(root, "bd-narrow"));

@@ -86,7 +86,7 @@ app drawer with its own switch and an **OPTIONS** button.
 | **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
 | **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
 | **SESSION BEST** | Your best lap of the session, with a purple tab. |
-| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best by 20 ms or more, red when it trails it by 20 ms or more, white in between. |
+| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best by 20 ms or more, red when it trails it by 20 ms or more, white in between. Once lit, the colour holds until the gap is under 10 ms, so it does not flicker at the edge. |
 | **LAST LAP** | Your last lap, off by default. |
 | **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
 | **INVALID · TRACK LIMITS** | A small red outlined tag when the game invalidates the lap you are on, with the game's own reason when it gave one (a track-limits cut names itself, in a race a few seconds after the flag, when the game has ruled on it; every reason the game has is known). Shown with or without a reference lap, for as long as the game's own flag is up on that lap (in practice, until you cross the line). |
@@ -113,12 +113,12 @@ bold.
 **Layout**
 - *Layout*: **full** (the figure on the bar, the lap times under it) or compact (a thin
   bar with the figure in a tag under it).
-- *Panel scale*: 0.6 to 2.0 in steps of 0.1, default **1.0**.
 - *Width*: narrow, **normal** or wide.
 - *Faster side*: which way the bar grows for time gained: **right**, as the game's own bar
   does, or left, as iRacing's does.
 - *Bar range*: the delta that fills the bar from the centre to its end (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
+- *Panel scale*: 0.6 to 2.0 in steps of 0.1, default **1.0**.
 
 **Colour**
 - *Number*: **trend** (green while gaining, red while losing, white while steady),
@@ -196,5 +196,5 @@ settings stay in the game's UI settings file, where the game ignores them.
 ---
 
 <div align="center">
-<sub>Better Delta Bar 0.1.0 · needs ACE UI App Loader 0.25.0 or newer</sub>
+<sub>Better Delta Bar 0.1.0 · needs ACE UI App Loader 0.26.0 or newer</sub>
 </div>

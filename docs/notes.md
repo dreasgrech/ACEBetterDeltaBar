@@ -50,7 +50,7 @@ the fill scales: it is never inside the scaled element.
 
 Every option applies to both layouts except the ones for things only one layout has: the
 cell switches and the trace are the full layout's, the follow-the-fill switch the compact
-one's. Those carry a `when` (loader 0.25.0) so the settings window draws only the switches
+one's. Those carry a `when` (loader 0.26.0) so the settings window draws only the switches
 of the layout on screen and swaps them the moment the layout changes; a hidden switch keeps
 its value. Background applies to both: the panel in full, the bar's track and the tag in
 compact.
@@ -408,6 +408,76 @@ slot: slots at the old scale beside slots at the new read as a step in the delta
 was (options review, 2026-09-23; the same review put the README right about the trace being
 the full layout's and about which section holds attract mode).
 
+Fifth pass, the tag (2026-09-23). A pending next-lap invalidation is our car's: a boundary made by
+another car coming under focus drops it. The lap record carries the car (`car`) and a record
+from another car is refused, as another session's is. A verdict (NO GAIN, a cut's penalty) on a
+lap the car was seen on the track on before its pit lane was first seen (`pitLate`, kept in the
+record) is the lap before's: the car came in from the track, the flag that rose is the pit entry's,
+and a cut earlier on that lap would have raised the flag on the track and be on record already; the
+out-lap whose line lies in the pit lane has the pit lane at its start and still takes its verdict.
+Where the car was, not the clock: a first version measured the pit lane's first sighting against
+the 500 ms grace, and a stall over such a line lands the out-lap's first frame past the grace with
+the car still in the pit lane (third round of the pass). That rule cannot speak on a lap whose
+first frame is already in the pit lane (a cut in the last corner, the pit entry before a line that
+lies inside the pit lane, the flag kept up on the lap begun there), so a lap that ends cut with
+no reason yet **owes its verdict** (`verdictOwed`, kept in the record): the next verdict to
+arrive is its, whatever lap the car is on by then, and paints nothing there; the debt is settled
+by that verdict or by the lap after, and a lap ended by another car coming under focus owes
+nothing. The debt survives the line being crossed while no lap was followed (a reload, a spell
+without the car): the refused record of the lap just before, same car and session, cut with no
+reason, carries it. A verdict arriving while the remembered lap waits for its count is **held**
+and judged once the record is settled, never before: judged at once it was pinned on a lap the
+record would then have shown to owe it to the lap before (fifth round). A held verdict is let go
+if the lap ends or the car goes before the count comes; a lap that ends while its record still
+waits keeps the record's debt, as a refusal does (sixth round). Any record restoreLap refuses as
+over (the lap just before, the same number found back in the pit lane, the clock behind its
+mark), if it is our car's in this session as far as the frame can tell and was cut with no
+reason, passes its debt on (another car's or another session's passes nothing): a
+debt can only swallow a verdict, so the worst it costs is a reason (seventh round: a cut lap
+found over in the pits handed its late verdict to the pit lap, red). And the rule under all of
+these (eighth round): **a verdict never marks a lap the car has not been on the track on**
+(`trackSeen`: car_location read "Track" at some frame of the lap). A lap spent in the box cannot
+have had a cut, whatever the debts say; an unpaid debt is carried through such a lap, and a
+refused record that still owes passes it on. In a build that never reports "Track" this only
+loses the reason on a flagged-from-the-start lap. A lap that was not cut but had the car on the
+track under a flag that was not a cut's (an out-lap after the pit exit) may have hidden a cut
+there, so it owes a verdict too (ninth round), as a **weaker debt**: it takes only a verdict that
+would otherwise mark a lap with no cut of its own, never one that names a cut the lap's own flag
+showed, and it is kept in the record like the others (tenth round: as a full debt it took the
+reason from the first cut lap after every pit stop, and from every cut lap chained after it). Only past a pit lane seen first on that lap: a
+first version counted any frame on the track under the flag, and the flag rising at the pit entry
+while the car still read Track for a frame made the in-lap owe, which swallowed the recorded
+Road Atlanta race's genuine out-lap verdict (the replay harness caught it). One edge is left, because the game's notices
+carry no lap: two cuts on one lap, the first named by its verdict, the second's verdict arriving
+after the line on a pit-exit lap, reads as a cut on that pit-exit lap, which is exactly what a
+real out-lap cut looks like (seen at Road Atlanta, 01:18:24). Making every cut lap owe would
+cure it at the cost of the reason on most cut laps that follow one. A pit record of this lap is kept
+when the reload finds the car on the track with the flag down: a reload between the pit exit and
+the flag rising a moment later lands there, and dropping the pit lane read the pit exit's flag as
+a cut. Where the game gives session ids, another session's lap of the same number is still
+refused; without them the trade is a quiet tag on a cut lap that shares a number with an out-lap
+across a reload, a red missing, never a red wrong. Two edges are left in the safe direction: a genuine cut after
+a drive-through on the same lap shows OUTLAP with no word of the cut (the flag was already up, and
+the verdict is refused as the in-lap's), and a cut lap whose reload lands in the pit lane is not
+restored (the teleport rule): a red tag missing, never a red tag wrong. The lap count is screened like every other
+number, NaN, negative and the sentinel alike (a NaN count would have turned the lap over every
+frame), and so are the session ids. The count moving within the first moments of lap clock after a clock boundary that
+landed past the grace (a stall over the line, the count a frame or two behind) is that boundary,
+measured on the lap clock (`boundaryClock`): a frame-based guard broke every compressed timeline
+in the harness, where laps are frames apart.
+
+Fifth pass, the look (2026-09-23, ten angles in parallel). The bar's sign and share are drawn from the
+delta as shown, rounded to the decimals on screen, so with two decimals a delta of -4 ms reads
+0.00 with no sign and no sliver of fill, and -5 ms rounds away from zero to -0.01 with a fill
+to match. A frame with no focused car clears the bar as well as the top line: the last car's
+figure, fill and trend colour read as live otherwise; the trend goes flat and the bar reads no
+reference. In the compact layout the trace is off whatever the switch says (there is no strip
+for it; 120 hidden slots were written a lap), and switching back to full starts from blank
+slots. The per-change log lines (the flag, the car's location, the car going away and back)
+are gated on physical state changes and not rate limited on purpose: they are the forensic
+record of the tag, and a limit would drop the very line that explains a tag when the flag
+and the line coincide; no session has shown either field flapping.
+
 
 - Never rebuild geometry per frame (PedalGraph's first build did, and the game died inside
   Renoir). The bar's two halves are fixed elements scaled by `transform`; the lap trace is
@@ -428,13 +498,12 @@ Full background in `ACEGameInternals/docs/gameface-notes.md`.
 
 ## The look
 
-The figure is written as two halves that meet at the decimal point, each taking the same share of the
-box, so the point is always at the box's middle. Centred as one string it sat wherever the glyph widths
-left it: the digits of the numeral font are wide and the sign and the point are narrow, which in game
-put the point a full glyph left of the bar's own centre mark (measured from a screenshot, 2026-09-23,
-10.5 px on a 122 px tag). The eye anchors on the point, so the whole readout looked offset. A half
-longer than its share spills outwards, away from the point, which also keeps the point still as the
-number gains or loses a digit. How it got there (all 2026-09-23, each seen in game): the
+The figure is one string in a tag sized from it, and the row holding the tag and its chevrons is moved
+(a lean class, see LEAN_CLASSES) so that the decimal point, not the middle of the text, sits on the bar's
+centre mark. Centred as one string with nothing more, it sat wherever the glyph widths left it: the digits
+of the numeral font are wide and the sign and the point are narrow, which in game put the point a full
+glyph left of the bar's own centre mark (measured from a screenshot, 2026-09-23, 10.5 px on a 122 px
+tag). The eye anchors on the point, so the whole readout looked offset. How it got there (all 2026-09-23, each seen in game): the
 figure was split into two halves meeting at the point, first by flex from a content-sized box, then
 by halves placed at the middle with no width of their own; both overlapped in game while passing in
 the browser, because the engine worked no width out of the text. Stated halves then worked, but in
@@ -452,6 +521,12 @@ width before, in half glyphs, so twelve classes cover every figure from "+10:02.
 (4). A first table taken from a screenshot counted the point as a full glyph and was 0.128em out. The tag therefore sits slightly right of the
 bar's centre for a figure under ten seconds with three decimals; the point is what lines up. Nothing in the suite could have caught that, because
 the suite runs in a browser; see "What the tests cannot see" below.
+
+One more cascade finding (fifth pass, 2026-09-23): the compact tag's `text-shadow: none` is
+three classes deep, and the rule that puts the strong-trend glow back to a plain shadow under
+the overall and white colour options is five, so in compact under those options a black shadow
+came and went with the strong trend. Two compact rules of six and seven classes settle it: none
+with a background, the figure's own 0.9 shadow without one.
 
 
 Follows the stock HUD widgets so it reads as part of the game: a dark translucent panel
@@ -532,6 +607,24 @@ be read to tell one from the other. So the rule is a habit rather than a check: 
 something already proven in game is laid out, and see it in the game before believing it. The rendered
 sheets in `dev/` are a browser's opinion of the layout, not the game's.
 
+Second review (2026-09-24, the code cut into slices of a few hundred lines, one reviewer each, every
+finding checked by hand and every fix proven by a case that fails without it). Four rules came out of it,
+all in the direction of a red missing rather than a red wrong. While a remembered record waits for the lap
+count, a cut from the flag alone is not painted: the record may yet say the lap has the pit lane in it,
+and then the flag was the pit exit's (a cut the game named is painted). Another car coming under focus
+has its lap taken as flagged from its start: the timing model may still be the old car's on that frame.
+A record is restored across a multiplayer clock correction (the clock up to 150 ms behind the mark, at
+least 5 s into the lap), so a one-frame spell without the car does not lose the red. And the focused
+car's number is unknown while the cars-on-track model is on the stock's switched-off list, whose values
+are stale. Left as they are, since each only swallows a red: the debts of a boundary taken while a record
+waits (`pendingDebt`, `pendingHidden`, a held verdict) are passed on more readily than `newLap` would;
+the flag seen down after the first 500 ms of a lap does not clear `lapStartedInvalid`; a lap count a
+frame ahead of the clock makes two boundaries; and a no-car frame while a record waits drops a cut the
+lap had gathered. One question only the game can answer: in the one pit entry recorded, `car_location`
+read `Pitentry` about 120 ms before the flag rose, so the rise was a pit lap's and quiet. Were the flag
+ever to rise a frame before the location changed, that in-lap would show red for its stay in the pit
+lane. The in-game check below looks for it.
+
 ## How it is tested
 
 Three browser harnesses, all run by `python -m unittest tests.test_app` through the loader's
@@ -552,7 +645,10 @@ Escape/resume reload right after it, and once with the lap clock jittered by up 
 every seventh frame dropped. It is
 generated: `tools/extract_replay.py <game log>` turns the recorder's lines into
 `tests/replay/replay_events.json`, `tools/make_replay_harness.py` writes the harness from
-that and the expectations in the generator. `tests/fuzz` runs five seeds of twelve thousand
+that and the expectations in the generator. The two logs behind the five sessions have since
+rotated out of the game's log folder, so the events file is the record now; the extractor's
+reading of every line format the recorder writes, old and new, is held by
+`tests/test_extract_replay.py`. `tests/fuzz` runs five seeds of twelve thousand
 frames of random models, flags, locations, junk values, notices for our car and others', and
 reloads, and holds what the game's data can answer: the red tag needs the flag up this frame
 and a cause seen this lap (the flag rose, or the game named our lap), its reason is one the
@@ -570,4 +666,7 @@ The game writes UI `console.log` output into `Saved Games\ACE\Logs\log-*.txt` as
 the widget is drawing what it has without following a lap; `widget attached` carries the options
 the game restored; `delta ok <figure> trend <trend>`
 once a minute means car data is flowing, and says `no npos` if the position field is not
-there (then the trace stays empty and should be switched off in the options).
+there (then the trace stays empty and should be switched off in the options). At every pit
+entry, `car location: Pitentry` should come before `invalid flag changed`: the other way round
+is the one order the recordings have not shown, and would paint the in-lap red (see the second
+review above).

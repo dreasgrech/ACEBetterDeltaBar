@@ -149,6 +149,7 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 0, is_focused: true },
             const note = function (what) { if (faults.length < 5) { faults.push(what); } };
             const laps = function () { return window.__log.filter(function (l) { return l.indexOf("new lap") >= 0; }).length; };
             const lapsBefore = laps();
+            const logStart = window.__log.length;
             const realLaps = events.filter(function (e) { return e.kind === "lap"; }).length;
             let frames = 0;
             /** One frame (the loop variable `step` is the time step): the model's clock as given, or jittered by up to JITTER_MS; every seventh frame is dropped when perturbing. */
@@ -199,12 +200,12 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 0, is_focused: true },
                     runFrame();
                 }
                 // a boundary or a correction: the game showed the old clock's last value one frame before it
-                if (e.kind === "lap" || e.kind === "clock") { car.current_lap_time_ms = e.fromMs; timing.current = lapText(e.fromMs, untimed); now += FRAME; runFrame(); }
+                if ((e.kind === "lap" || e.kind === "clock") && e.fromMs !== null) { car.current_lap_time_ms = e.fromMs; timing.current = lapText(e.fromMs, untimed); now += FRAME; runFrame(); }
                 let detail = "";
                 if (e.kind === "start") { detail = e.location + " lap " + e.lapMs; }
                 else if (e.kind === "flag") { timing.invalid = e.invalid; if (e.lapMs !== null) { car.current_lap_time_ms = e.lapMs; } detail = String(e.invalid) + " @" + e.lapMs; }
-                else if (e.kind === "location") { car.car_location = e.location; if (e.lapMs !== null) { car.current_lap_time_ms = e.lapMs; } detail = e.location + " @" + e.lapMs; }
-                else if (e.kind === "lap") { car.current_lap_time_ms = e.lapMs; car.low_frequency.total_lap_count = typeof e.count === "number" ? e.count : car.low_frequency.total_lap_count + 1; if (e.invalid !== null) { timing.invalid = e.invalid; } untimed = false; detail = e.fromMs + " -> " + e.lapMs; }
+                else if (e.kind === "location") { if (e.location !== null) { car.car_location = e.location; } if (e.lapMs !== null) { car.current_lap_time_ms = e.lapMs; } detail = e.location + " @" + e.lapMs; }
+                else if (e.kind === "lap") { if (e.lapMs !== null) { car.current_lap_time_ms = e.lapMs; } car.low_frequency.total_lap_count = typeof e.count === "number" ? e.count : car.low_frequency.total_lap_count + 1; if (e.invalid !== null) { timing.invalid = e.invalid; } untimed = false; detail = e.fromMs + " -> " + e.lapMs; }
                 // the game's own correction of its clock: it steps back a few ms and no lap begins
                 else if (e.kind === "clock") { car.current_lap_time_ms = e.lapMs; if (typeof e.count === "number") { car.low_frequency.total_lap_count = e.count; } if (e.invalid !== null) { timing.invalid = e.invalid; } detail = e.fromMs + " -> " + e.lapMs + " (" + (e.fromMs - e.lapMs) + " ms back)"; }
                 else if (e.kind === "notice") { if (e.lapMs !== null) { car.current_lap_time_ms = e.lapMs; } engineHandlers.UINotification({ type: "UINotificationType_SessionPenalty", tuples: [{ values: e.values }] }); detail = e.values.join(" | "); }
@@ -229,6 +230,10 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 0, is_focused: true },
 
             if (checked <= 0) { note(label + "nothing was checked"); }
 
+            // a throw inside the notification hook or the lap store never reaches this loop: safely() swallows it
+            // and writes a " failed: " line, so the log is the only witness
+            window.__log.slice(logStart).filter(function (l) { return l.indexOf(" failed: ") >= 0; }).forEach(function (l) { note(label + "a wrapped handler threw: " + l.slice(0, 160)); });
+
             // every fault of this replay together: a tag that went wrong early must not hide the count below
             eq(faults.join(" | "), "", label + "faults");
             } finally {
@@ -241,7 +246,7 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 0, is_focused: true },
     });
 
     Object.keys(DATA).forEach(function (name) {
-        t((TITLES[name] || name).split(":")[0] + ": the same with an Escape/resume reload right after each recorded event in turn", function () {
+        t((TITLES[name] || name).split(":")[0] + ": the same with an Escape/resume reload right after each recorded location, flag and lap event in turn (not the notices or the clock corrections)", function () {
             DATA[name].events.forEach(function (e, i) {
                 // not the widget's own log lines; and not a notice: a reload inside the 19 to 48 ms between a practice
                 // notice and its flag keeps the tag (the flag's) but loses the reason, a documented edge (notes.md)

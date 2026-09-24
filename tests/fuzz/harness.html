@@ -47,6 +47,11 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
     const OTHER_TYPES = ["lblNotificationPenalty_NO_GAIN", "PenaltyType_Warning", "PenaltyType_Drive_Through", "PenaltyType_Time_Penalty_Seconds", "PenaltyType_InvalidNextLap"];
     const REASONS = ["InvestigationType_Racecar_Cut", "InvestigationType_Collision", "InvestigationType_Speeding", "constructor", "", "Something_Odd"];
     const LOCATIONS = ["Track", "Pitlane", "Pitentry", "Pitexit", "Unassigned", "", null, 42];
+    /** The oracle's own tables, written from the game's enums, not read from the widget: a wrong entry there must not widen the oracle with it. */
+    const VERDICT_TYPES = { lblNotificationPenalty_LAP_INVALIDATED: true, PenaltyType_InvalidLap: true, lblNotificationPenalty_NO_GAIN: true };
+    const CUT_REASON = "InvestigationType_Racecar_Cut";
+    const PIT_PLACES = { Pitlane: true, Pitentry: true, Pitexit: true };
+    const isVerdict = function (read) { return VERDICT_TYPES[read.type] === true || read.reason === CUT_REASON; };
     const JUNK = [undefined, null, NaN, Infinity, -Infinity, "12", "", {}, [], -1, 2147483647, 1e12, true];
 
     /** A small seeded generator (mulberry32), so a failing run can be repeated from its seed. */
@@ -71,10 +76,23 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
 
     const pick = function (r, list) { return list[Math.floor(r() * list.length)]; };
 
+    /** The models as the page starts: every seed begins here, so a run is repeatable from its seed alone. */
+    const freshModels = function () {
+        window.ModelCurrentCar = { has_focused_car: true, delta_time_ms_ui: 2147483647, delta_time_ms: 0, predicted_lap_time_ms: -1,
+                                   current_lap_time_ms: 0, npos: 0.03, delta_time_drivername: "", car_location: "Track",
+                                   low_frequency: { total_drivers: 11, total_lap_count: 0 } };
+        window.ModelTiming = { best: "", ideal: "", last: "", current: "", invalid: false };
+        window.ModelCarsOnTrack = { cars_on_track: [{ car_number: OWN, is_focused: true }, { car_number: OTHER, is_focused: false }] };
+    };
+
     const fuzz = function (seed) {
         const r = rng(seed);
+        // nothing carried in from the seed before: the models as the page starts, and no lap record
+        freshModels();
+        ACEUIAppLoader.app("betterdeltabar").forget("lap");
         const car = window.ModelCurrentCar;
         const timing = window.ModelTiming;
+        const logStart = window.__log.length;
         center.innerHTML = "";
         const root = document.createElement("div");
         center.appendChild(root);
@@ -98,6 +116,7 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
         let carGone = false;              // the car went away at some frame of this lap: the widget joined the lap part-way
         let rejoinPending = false;        // and the lap after it is the one the widget rejoins on, where its record may speak
         let faults = [];
+        let followed = 0;                 // frames the widget was following a lap: the converse invariant is only judged on those
         const recent = [];
         const note = function (what) { recent.push(what); if (recent.length > 12) { recent.shift(); } };
         const fault = function (what, i) {
@@ -138,7 +157,8 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
             // where the car is
             if (r() < 0.03) { car.car_location = pick(r, LOCATIONS); }
             // parked in the pit lane with the session's clock in the millions, as multiplayer showed it
-            if (r() < 0.002) { lapMs = PARKED_CLOCK_MS + Math.floor(r() * 60000); car.current_lap_time_ms = lapMs; note(i + " parked clock -> " + lapMs); }
+            // (not on a boundary frame: it would overwrite the clock the oracle just booked the lap by)
+            if (r() < 0.002 && !boundaryNow) { lapMs = Math.max(lapMs, PARKED_CLOCK_MS + Math.floor(r() * 60000)); car.current_lap_time_ms = lapMs; note(i + " parked clock -> " + lapMs); }
             // the timing strings
             if (r() < 0.05) { timing.current = pick(r, ["", "Outlap", "00:1" + Math.floor(r() * 10) + ".123", "junk", pick(r, JUNK)]); }
             if (r() < 0.02) { timing.best = pick(r, ["", "01:43.445", pick(r, JUNK)]); timing.ideal = pick(r, ["", "1:43.102"]); timing.last = pick(r, ["", "1:43.987", pick(r, JUNK)]); }
@@ -178,8 +198,9 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
                 const mine = read !== null && B.isOwnCar(read);
                 // a verdict delivered in the frame the clock reset belongs to neither lap for certain: the
                 // widget books it on the lap it is still following, and that lap ends in the same frame
-                if (mine && B.isLapVerdict(read) && !boundaryNow) { noticeThisLap = true; reasonsThisLap.push(B.reasonText(read.reason)); }
-                if (mine && B.isLapVerdict(read) && boundaryNow) { ambiguous = true; note(i + " verdict in a boundary frame: neither lap's for certain"); }
+                // (a next-lap invalidation is never judged against this lap, whatever its reason)
+                if (mine && isVerdict(read) && read.type !== "PenaltyType_InvalidNextLap" && !boundaryNow) { noticeThisLap = true; reasonsThisLap.push(B.reasonText(read.reason)); }
+                if (mine && isVerdict(read) && read.type !== "PenaltyType_InvalidNextLap" && boundaryNow) { ambiguous = true; note(i + " verdict in a boundary frame: neither lap's for certain"); }
                 if (mine && read.type === "PenaltyType_InvalidNextLap") { nextLapAnnounced = true; nextReason = B.reasonText(read.reason); }
                 // the game's clock reset and its notice in one frame: the widget books the notice on the lap it is still following,
                 // so a next-lap invalidation may land on the lap just begun (the game's own ordering inside a frame is unknowable)
@@ -197,7 +218,7 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
                 // the widget only lets go of "this lap began flagged" inside the first LAP_START_GRACE_MS
                 if (typeof car.current_lap_time_ms === "number" && car.current_lap_time_ms >= 0 && car.current_lap_time_ms < 500) { flagDownEarly = true; }
             }
-            if (typeof car.car_location === "string" && B.PIT_LOCATIONS[car.car_location] === true) { pitThisLap = true; }
+            if (typeof car.car_location === "string" && PIT_PLACES[car.car_location] === true) { pitThisLap = true; }
 
             now += FRAME;
             try { clock.step(now); } catch (e) { fault("frame threw: " + e.message, i); break; }
@@ -215,6 +236,7 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
             if (red && !flagDownThisLap && !noticeThisLap && !ambiguous && !carGone) { fault("red on a lap flagged from its start with no verdict for us", i); }
             // and the converse, where nothing is in doubt: the flag is up now, it was down earlier this
             // lap, the pit lane was not, the widget has been following this lap all along
+            if (state.started) { followed += 1; }
             if (!red && flagNow && flagDownEarly && !pitThisLap && !ambiguous && !carGone && !boundaryNow && state.started
                 && typeof car.current_lap_time_ms === "number" && car.current_lap_time_ms >= 0 && window.ModelTiming === timing
                 && typeof timing.current === "string" && timing.current !== "" && timing.current !== "Outlap") {
@@ -222,14 +244,19 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
             }
             // and the reason is one the game gave for this lap, or none
             if (red && !ambiguous && !carGone && text !== "INVALID" && reasonsThisLap.indexOf(text.slice("INVALID \u00b7 ".length)) < 0) { fault("red with a reason the game did not give this lap: " + JSON.stringify(text), i); }
-            if (quiet && text === "PIT LANE" && !(typeof car.car_location === "string" && B.PIT_LOCATIONS[car.car_location] === true)) { fault("PIT LANE with the car at " + JSON.stringify(car.car_location), i); }
+            if (quiet && text === "PIT LANE" && !(typeof car.car_location === "string" && PIT_PLACES[car.car_location] === true)) { fault("PIT LANE with the car at " + JSON.stringify(car.car_location), i); }
             if (quiet && text === "OUTLAP" && !pitThisLap) { fault("OUTLAP with no pit lane this lap", i); }
         }
         } catch (e) {
             fault("threw: " + e.message, -1);
         }
+        // a widget that never joined a lap would never paint red and would pass every invariant above in silence
+        if (followed < FRAMES / 2) { fault("the widget followed a lap on only " + followed + " of " + FRAMES + " frames", -1); }
         B.detach(state);
         window.ModelTiming = timing;
+        // a throw inside the notification handler never reaches the loop above: the library's
+        // safely() swallows it and writes a "failed:" line, so the log is the only witness
+        window.__log.slice(logStart).filter(function (l) { return l.indexOf(" failed: ") >= 0; }).forEach(function (l) { fault("a wrapped handler threw: " + l.slice(0, 160), -1); });
         return faults;
     };
 
@@ -237,7 +264,6 @@ window.ModelCarsOnTrack = { cars_on_track: [{ car_number: 7, is_focused: true },
         t("fuzz seed " + seed + ": " + FRAMES + " frames of random models, flags, locations, notices and reloads keep every tag invariant and never throw", function () {
             const faults = fuzz(seed);
             eq(faults.join("; "), "", "faults");
-            ok(true, "ran " + FRAMES + " frames");
         });
     });
 
