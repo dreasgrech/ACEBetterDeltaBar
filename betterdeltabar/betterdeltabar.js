@@ -195,6 +195,17 @@ const BetterDeltaBar = (function () {
     const PIT_LANE_TAG = "PIT LANE";
     const OUTLAP_TAG = "OUTLAP";
     /**
+     * The tags attract mode can put on its scripted lap, so a recording can show one without a
+     * lap being cut: none, the usual cut first, then plain INVALID, the two quiet tags, and INVALID
+     * with every other reason the game has. The option's value is the tag itself (the settings
+     * window's cycle button shows a value as it is), in the English words of REASONS.
+     */
+    const ATTRACT_TAG_OFF = "Off";
+    const ATTRACT_TAG_FIRST_REASON = "InvestigationType_Racecar_Cut";
+    const invalidWith = function (key) { return INVALID_TEXT + REASON_SEPARATOR + REASONS[key].toUpperCase(); };
+    const ATTRACT_TAGS = [ATTRACT_TAG_OFF, invalidWith(ATTRACT_TAG_FIRST_REASON), INVALID_TEXT, OUTLAP_TAG, PIT_LANE_TAG].concat(
+        Object.keys(REASONS).filter(function (key) { return key !== ATTRACT_TAG_FIRST_REASON; }).map(invalidWith));
+    /**
      * `ModelCurrentCar.car_location`: CarLocation.Type as a string (Unassigned, Pitlane,
      * Pitentry, Pitexit, Track; the stock pit-limiter warning compares it to "Pitlane" and
      * "Pitentry"). These three are the pit lane; anything else says nothing either way.
@@ -523,7 +534,8 @@ const BetterDeltaBar = (function () {
         invalid: "showInvalid",
         hideNoRef: "hideWithoutReference",
         bg: "background",
-        attract: "attract"
+        attract: "attract",
+        attractTag: "attractTag"
     };
 
     const section = function (key, label, columns, collapsed) {
@@ -555,6 +567,8 @@ const BetterDeltaBar = (function () {
      */
     const inCompact = function () { return settings.get(me.name, SETTING.layout) === LAYOUT_COMPACT; };
     const inFull = function () { return !inCompact(); };
+    /** Attract mode is on: its own options are drawn only then. From the store, as above. */
+    const inAttract = function () { return settings.get(me.name, SETTING.attract) === true; };
 
     /** The settings window: wide, two controls to a row, hints in one line at the foot for the row under the pointer. */
     const SECTION_COLUMNS = 2;
@@ -592,7 +606,10 @@ const BetterDeltaBar = (function () {
         section("look", "Look", SECTION_COLUMNS, true),
         choice(SETTING.bg, "Background", BACKGROUND_DARK, [BACKGROUND_DARK, BACKGROUND_LIGHT, BACKGROUND_NONE],
             "full: the panel; compact: the bar and the tag"),
-        toggle(SETTING.attract, "Attract mode", false, "a scripted lap, for recording without driving")
+        toggle(SETTING.attract, "Attract mode", false, "a scripted lap, for recording without driving"),
+        // a cycle button, not pills: two dozen tags do not fit in a row. Shown only while attract is on
+        { key: SETTING.attractTag, type: "choice", label: "Demo tag", value: ATTRACT_TAG_OFF, options: ATTRACT_TAGS,
+            hint: "the tag the scripted lap shows; click to go through them", when: inAttract }
     ], PANE_LAYOUT);
 
     /** The option keys that change what is drawn or how, and nothing else. */
@@ -1887,9 +1904,13 @@ const BetterDeltaBar = (function () {
         // pit lane in it, and a flag rising meanwhile would be the pit exit's: a cut from the flag alone is not
         // painted until it has spoken; a cut the game named is (second review, 2026-09-24)
         const flagOnly = state.lapCut ? state.cutReason === "" : true;
-        const invalid = state.invalidOn && !(state.restorePending && flagOnly)
-            && (state.lapCut ? m.rawInvalid : (m.invalid && !state.lapStartedInvalid && !state.pitLap));
-        const pit = state.invalidOn && !invalid && (m.inPits === true || (m.rawInvalid && state.pitLap));
+        // attract mode shows the tag picked for it and nothing the lap state says (it has none of its own there)
+        const demoTag = state.attract ? settings.get(me.name, SETTING.attractTag) : ATTRACT_TAG_OFF;
+        const demo = demoTag !== ATTRACT_TAG_OFF;
+        const demoInvalid = demoTag.indexOf(INVALID_TEXT) === 0;
+        const invalid = state.invalidOn && (demo ? demoInvalid : !(state.restorePending && flagOnly)
+            && (state.lapCut ? m.rawInvalid : (m.invalid && !state.lapStartedInvalid && !state.pitLap)));
+        const pit = state.invalidOn && !invalid && (demo ? !demoInvalid : (m.inPits === true || (m.rawInvalid && state.pitLap)));
         const topOn = hasDriver || invalid || pit || state.hasRef === false;
         let predState = PRED_EVEN;
 
@@ -1964,7 +1985,9 @@ const BetterDeltaBar = (function () {
         if (invalid || pit) {
             let tag = PIT_LANE_TAG;
 
-            if (invalid) {
+            if (demo) {
+                tag = demoTag;
+            } else if (invalid) {
                 tag = state.cutReason ? INVALID_TEXT + REASON_SEPARATOR + state.cutReason : INVALID_TEXT;
             } else if (m.inPits !== true) {
                 tag = OUTLAP_TAG;

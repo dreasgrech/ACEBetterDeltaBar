@@ -401,7 +401,7 @@ const Preview = (function () {
 
             // strings stay strings (a choice like decimals stores "2"); the range control coerces numbers itself
             if (setting) {
-                const raw = setting[2].replace(/_/g, " ");
+                const raw = decodeURIComponent(setting[2]).replace(/_/g, " ");
 
                 ACEUIAppLoader.settings.set("betterdeltabar", setting[1], raw === "true" ? true : (raw === "false" ? false : raw));
             }

@@ -2612,6 +2612,31 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         car.current_lap_time_ms = 20; frame(); car.current_lap_time_ms = 200; frame();
     });
 
+    t("attract mode shows the lap tag picked for it, for a recording: INVALID with any reason, plain INVALID, OUTLAP or PIT LANE; the option is drawn only in attract and does nothing on the real lap", function () {
+        const spec = ACEUIAppLoader.settings.specs(me.name).filter(function (s) { return s.key === "attractTag"; })[0];
+        const tag = q(".bd-invalid-tag");
+        eq(spec.options[0], "Off", "off first"); eq(spec.options[1], "INVALID · TRACK LIMITS", "then the usual cut");
+        ok(spec.options.indexOf("INVALID · COLLISION") > 0 && spec.options.indexOf("OUTLAP") > 0 && spec.options.indexOf("PIT LANE") > 0, "and the rest");
+        eq(spec.options.length, new Set(spec.options).size, "each once");
+        eq(spec.when(), false, "attract off: the option is not in the window");
+        eq(B.attract(true), true); run(1000);
+        eq(spec.when(), true, "attract on: it is");
+        ok(!has(root, "bd-invalid") && !has(root, "bd-pit"), "Off: no tag");
+        set("attractTag", "INVALID · TRACK LIMITS"); frame();
+        ok(has(root, "bd-invalid") && !has(root, "bd-pit"), "a cut: the red tag"); eq(tag.textContent, "INVALID · TRACK LIMITS");
+        set("attractTag", "INVALID · COLLISION"); frame(); eq(tag.textContent, "INVALID · COLLISION", "another reason");
+        set("attractTag", "INVALID"); frame(); eq(tag.textContent, "INVALID", "no reason");
+        set("attractTag", "OUTLAP"); frame();
+        ok(!has(root, "bd-invalid") && has(root, "bd-pit"), "OUTLAP: the quiet tag"); eq(tag.textContent, "OUTLAP");
+        set("attractTag", "PIT LANE"); frame(); eq(tag.textContent, "PIT LANE");
+        set("showInvalid", false); frame(); ok(!has(root, "bd-invalid") && !has(root, "bd-pit"), "lap tags off: none, as on the real lap");
+        set("showInvalid", true); set("attractTag", "INVALID · TRACK LIMITS"); run(20000);
+        ok(has(root, "bd-invalid"), "it stays through the laps");
+        eq(B.attract(false), false); car.current_lap_time_ms = 20; timing.invalid = false; frame(); car.current_lap_time_ms = 200; frame();
+        ok(!has(root, "bd-invalid") && !has(root, "bd-pit"), "attract off with the option still set: the real lap has no tag");
+        ACEUIAppLoader.settings.reset(me.name); frame();
+    });
+
     t("attract mode drives to the bar it is shown on: at a 5 s range every gain and loss is five times the 1 s one, so it swings as far across the bar; back at 1 s it is the same script again", function () {
         const at = B.attractLap(0).start + 45000;
         const one = B.attractValues(at, 1000), five = B.attractValues(at, 5000);

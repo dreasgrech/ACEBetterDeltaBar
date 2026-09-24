@@ -115,6 +115,7 @@ With no reference lap yet, a line above the bar counts the lap you are on ("no r
 **Look** (folded by default)
 - *Background*: **dark**, light or none.
 - *Attract mode*, **off**: a scripted lap, for recording without driving.
+- *Demo tag*, **off**, shown while attract mode is on: the tag the scripted lap shows, to record it without cutting a lap: INVALID with any of the game's reasons, plain INVALID, OUTLAP or PIT LANE. Click it to go through them.
 
 **Reset to defaults** puts every value back.
 

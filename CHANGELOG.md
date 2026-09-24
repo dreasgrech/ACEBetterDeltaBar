@@ -12,6 +12,7 @@ Needs ACE UI App Loader 0.26.0.
 - Compact bar with Background: none has a darker track, fixing a flickering edge.
 - Faster side options listed Left, Right.
 - Attract mode drives realistic laps for recording: real lap length, green and red mixed in every lap, big swings both ways, the best lap improving now and then. Its lap trace is drawn at once. It swings as far across the bar at any Bar range, lasts one game session and ignores the game's notices.
+- Attract mode can show a lap tag for recording: *Demo tag* picks INVALID with any reason, plain INVALID, OUTLAP or PIT LANE.
 
 ### INVALID tag
 - A late race verdict (NO GAIN) could mark the wrong lap INVALID: after a pit stop, a return to the pits, an Escape/resume, or switching to another car.
