@@ -2,7 +2,7 @@
 
 # ACE Better Delta Bar
 
-**A delta bar for Assetto Corsa EVO that shows whether you are gaining or losing time right now, not only whether the lap is up or down.**<br>
+**A delta bar for the HUD of Assetto Corsa EVO that shows whether you are gaining or losing time right now.**<br>
 
 [![Latest release](https://img.shields.io/github/v/release/dreasgrech/ACEBetterDeltaBar?style=flat-square&label=download&color=0a7)](../../releases/latest)
 [![Needs](https://img.shields.io/badge/needs-ACE_UI_App_Loader-informational?style=flat-square)](https://github.com/dreasgrech/ACEUIAppLoader)
@@ -11,38 +11,18 @@
 
 <p align="center"><img width="640" alt="The Better Delta Bar: the bar shows the lap is up, the number shows time is being lost right now, the lap times underneath" src="docs/images/widget.png" /></p>
 
-The stock delta bar colours its bar **and** its number by the same thing: green while your
-lap as a whole is ahead of the reference, red while it is behind. So a lap that is four
-tenths up but bleeding time through every corner is green all the way round, and you only
-find out by watching the digits move.
+The bar shows where your lap stands against the reference. The number's colour shows which way it is heading: green while you are gaining, red while you are losing, white while it holds. The game's own bar colours both by the lap as a whole, so a lap that is up but losing time in every corner stays green.
 
-This one keeps the bar for the overall delta and colours the **number by the trend**:
-
-- **green** while you are gaining on the reference right now,
-- **red** while you are losing to it,
-- **white** while nothing is changing,
-
-with a chevron pointing the way the end of the bar is moving, brighter when it is moving fast. One glance
-tells you both things: the bar says where the lap stands, the number says which way it is
-heading.
-
-Under the bar, a row of lap times: **session optimal**, **session best** and the
-**predicted lap** coloured against your best (the last lap too, if you want it). Or switch to
-the **compact** layout, a thin bar with the number in a tag that rides the end of the fill,
-the iRacing shape:
+Under the bar sit your session optimal, session best and predicted lap. The compact layout is a thin bar with the number in a tag that follows the end of the fill. The full layout can add a trace of the delta across the lap. Drag it anywhere on the HUD and it stays there.
 
 <p align="center"><img width="560" alt="The compact layout: a thin bar with the number in a tag under it" src="docs/images/widget-compact.png" /></p>
-
-The full layout can add a **lap trace** that draws the delta across the lap as you drive it,
-so the corner that cost the time is still on the screen at the end of the straight. Drag
-the widget anywhere on the HUD and it stays there.
 
 ---
 
 ## Installing the ACEBetterDeltaBar app
 
 > [!WARNING]
-> This is an app for the [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader) mod so that needs to be installed (a single file) as well.
+> This is an app for the [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader) mod so that needs to be installed (a single file) as well, version 0.26.0 or newer.
 
 <table>
 <tr><td width="40" align="center"><h3>1</h3></td><td>
@@ -72,8 +52,7 @@ In the car, move your mouse to the right edge of the screen. The delta bar is li
 app drawer with its own switch and an **OPTIONS** button.
 
 > [!TIP]
-> You will probably want to switch the game's own delta bar off, or you have two. In the game:
-> **Settings → Gameplay → HUD → Delta Widget → Off**. Nothing about this app depends on it.
+> Switch the game's own delta bar off, or you have two: **Settings → Gameplay → HUD → Delta Widget → Off**.
 
 ---
 
@@ -81,67 +60,53 @@ app drawer with its own switch and an **OPTIONS** button.
 
 | | |
 |---|---|
-| **The bar** | The overall delta for the lap: it grows out from the centre, **right and green** when the lap is ahead of the reference, **left and red** when it is behind, the same way round as the game's own bar (*Faster side* turns it round; *Bar* in the Colour section can make it follow the trend instead). A bright tick marks the end of the fill, and the centre it grows from is marked too, in both layouts, so a short fill still says where you stand. A tenth of a second is a tenth of the way to the edge by default (see *Bar range*). |
-| **The number** | The same delta as a figure, `-0.235` for time gained, `+0.235` for time lost. Its **colour is the trend**: is the number going down (green, you are gaining) or up (red, you are losing) over the last second? White means it is holding. |
-| **The chevrons** | Point the way the end of the fill is moving: towards the faster side (right, by default) while you are gaining, towards the slower side while you are losing. They brighten when the trend is strong. |
-| **SESSION OPTIMAL** | Your best sectors of the session added up, with a gold tab. |
-| **SESSION BEST** | Your best lap of the session, with a purple tab. |
-| **PREDICTED LAP** | The lap time this pace ends in, green when it beats your best by 20 ms or more, red when it trails it by 20 ms or more, white in between. Once lit, the colour holds until the gap is under 10 ms, so it does not flicker at the edge. |
-| **LAST LAP** | Your last lap, off by default. |
-| **The lap trace** | Off by default. A strip that fills as you go round: above the line where you were gaining at that point of the lap, below where you were losing, in the same colours. It clears when you cross the line. |
-| **INVALID · TRACK LIMITS** | A small red outlined tag when the game invalidates the lap you are on, with the game's own reason when it gave one (a track-limits cut names itself, in a race a few seconds after the flag, when the game has ruled on it; every reason the game has is known). Shown with or without a reference lap, for as long as the game's own flag is up on that lap (in practice, until you cross the line). |
-| **PIT LANE**, **OUTLAP** | The same tag, quiet and grey, on a lap that does not count with nothing wrong: PIT LANE while you are in the pit lane, OUTLAP for the rest of a lap you spent any of in it. Cut the track on that lap and the tag turns red with the reason as soon as the game rules on it. On some tracks the timing line lies inside the pit lane, so the lap the game flags at the pit exit is the one after the line; it reads OUTLAP too. Speeding out of the pits gets you the game's warning and nothing else: it does not invalidate a lap. |
-| **vs Name** | Appears whenever the game names a driver for its delta, as its own bar does above itself. In practice against your own lap it never does; expect it where the game compares you to a rival. |
+| **The bar** | The lap's delta. It grows **right and green** when you are ahead of the reference and **left and red** when you are behind, like the game's own bar. By default a full bar is one second. |
+| **The number** | The same delta as a figure: `-0.235` gained, `+0.235` lost. Its colour is the trend over the last second: green gaining, red losing, white holding. |
+| **The chevrons** | Point the way the end of the bar is moving. They brighten when the trend is strong. |
+| **SESSION OPTIMAL** | Your best sectors of the session, added up. |
+| **SESSION BEST** | Your best lap of the session. |
+| **PREDICTED LAP** | Where this lap is heading. Green when it beats your best by 20 ms or more, red when it trails it by 20 ms or more. |
+| **LAST LAP** | Your last lap. Off by default. |
+| **The lap trace** | Off by default. The delta across the lap so far: above the line where you gained, below where you lost. It clears at the line. |
+| **INVALID** | A red tag when the game invalidates your lap, with its reason when it gives one, as in INVALID · TRACK LIMITS. In a race the reason comes a few seconds after the cut. |
+| **PIT LANE**, **OUTLAP** | A quiet grey tag on a lap that doesn't count but wasn't cut: PIT LANE in the pit lane, OUTLAP for the rest of that lap. |
+| **vs Name** | The driver the game compares you to, when it names one. |
 
-With no reference lap yet there is no number under or on the bar, and a line above the bar counts the
-lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. That line
-has its own band above the bar, so the bar never moves when it appears. If you would
-rather see nothing until there is a delta, switch on *Hide until a reference lap*. The
-reference is whatever the game itself is using for its delta, so it changes exactly when
-the stock one does.
+With no reference lap yet, a line above the bar counts the lap you are on ("no reference yet ·
+lap 0:34.2"), so you can see it is working. The reference is the game's own, so it changes
+when the stock bar's does.
 
 ---
 
 ## Options
 
-**OPTIONS** in the app drawer opens the settings: every choice is a row of buttons with the
-current one lit, and what is shown is a row of chips you switch on and off. Point at a
-setting and a line at the foot of the window says what it does. Everything you change is
-kept, through the HUD reload and a restart. Click a section header to fold it. Defaults in
-bold.
+**OPTIONS** in the app drawer opens the settings. Point at a setting and a line at the foot
+of the window says what it does. Everything you change is kept, through the HUD reload and a
+restart. Click a section header to fold it. Defaults in bold.
 
 **Layout**
-- *Layout*: **full** (the figure on the bar, the lap times under it) or compact (a thin
-  bar with the figure in a tag under it).
+- *Layout*: **full** or compact.
 - *Width*: narrow, **normal** or wide.
-- *Faster side*: which way the bar grows for time gained: **right**, as the game's own bar
-  does, or left, as iRacing's does.
-- *Bar range*: the delta that fills the bar from the centre to its end (and the trace): 0.5 s, **1 s**, 2 s or 5 s.
+- *Faster side*: the way the bar grows for time gained: **right**, like the game's bar, or
+  left, like iRacing's.
+- *Bar range*: the delta that fills the bar: 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
 - *Panel scale*: 0.6 to 2.0 in steps of 0.1, default **1.0**.
 
 **Colour**
-- *Number*: **trend** (green while gaining, red while losing, white while steady),
-  overall (the stock rule: green while the lap is up, red while it is down) or white.
-- *Bar*: **overall** (its side's colour) or trend.
+- *Number*: **trend**, overall (the game's rule: green while the lap is up) or white.
+- *Bar*: **overall** or trend.
 - *Trend window*: how far back the trend looks: 0.5 s, **1 s** or 2 s.
-- *Trend sensitivity*: fine, **normal** or coarse. Fine reacts to less; coarse waits for
-  more before it changes colour.
+- *Trend sensitivity*: fine, **normal** or coarse.
 
 **Show**
-- For both layouts: *Trend chevrons*, *Lap tags* (INVALID, OUTLAP, PIT LANE): each **on**.
-  *Hide until a reference lap*: **off**; on, the whole widget stays hidden until there is a
-  delta.
-- Full layout only: *session optimal*, *session best*, *predicted lap*: **on**; *last lap*
-  and *lap trace*: **off**.
-- Compact layout only: *Figure follows the fill*: **on**. Off keeps the tag centred.
-
-The window shows only the switches the layout on screen has, and swaps them when you
-change the layout.
+- *Trend chevrons* and *Lap tags*: **on**. *Hide until a reference lap*: **off**.
+- Full layout: *Session optimal*, *Session best* and *Predicted lap* **on**; *Last lap* and
+  *Lap trace* **off**.
+- Compact layout: *Figure follows the fill*, **on**. Off keeps the tag centred.
 
 **Look** (folded by default)
-- *Background*: **dark**, light or none. In the full layout that is the panel; in the
-  compact one, the bar's track and the tag.
+- *Background*: **dark**, light or none.
 - *Attract mode*, **off**: a scripted lap, for recording without driving.
 
 **Reset to defaults** puts every value back.
@@ -155,7 +120,9 @@ change the layout.
 
 1. **The loader isn't installed**, or its drawer doesn't appear at all. Start with the
    [loader's own help](https://github.com/dreasgrech/ACEUIAppLoader#if-something-isnt-right).
-2. **Only one of the two folders was copied.** The app needs both: the folder under `mods`
+2. **The loader is older than 0.26.0.** Update it from its
+   [latest release](https://github.com/dreasgrech/ACEUIAppLoader/releases/latest).
+3. **Only one of the two folders was copied.** The app needs both: the folder under `mods`
    and the small file under `Video`. That file must stay completely empty.
 
 </details>
@@ -163,17 +130,16 @@ change the layout.
 <details>
 <summary><b>It says "no reference lap"</b></summary><br>
 
-The game has no lap to compare against yet: drive a full lap first. The reference is the
-game's own, so this app shows a delta exactly when the stock delta bar would.
+The game has no lap to compare against yet. Drive a full lap first.
 
 </details>
 
 <details>
 <summary><b>The lap trace stays empty</b></summary><br>
 
-The trace needs the car's position along the lap, which the game reports in most modes.
-If it never fills, switch *Lap trace* off in the options and open an
-[issue](../../issues) saying which mode and track you were in.
+The trace needs the car's position along the lap, which the game reports in most modes. If
+it never fills, switch *Lap trace* off and open an [issue](../../issues) saying which mode
+and track you were in.
 
 </details>
 
@@ -196,5 +162,5 @@ settings stay in the game's UI settings file, where the game ignores them.
 ---
 
 <div align="center">
-<sub>Better Delta Bar 0.1.0 · needs ACE UI App Loader 0.26.0 or newer</sub>
+<sub>Better Delta Bar 0.2.0 · needs ACE UI App Loader 0.26.0 or newer</sub>
 </div>

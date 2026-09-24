@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-24
 
-Version not bumped yet (still 0.1.0 in `app.json`). Needs ACE UI App Loader 0.26.0.
+Needs ACE UI App Loader 0.26.0.
 
 ### Look
 - Centre mark on the bar in both layouts; the compact bar had none.
@@ -30,7 +30,7 @@ Version not bumped yet (still 0.1.0 in `app.json`). Needs ACE UI App Loader 0.26
 - Bad values from the game (NaN in the lap count or the delta) are ignored.
 
 ### Docs
-- README: lap trace is full layout only; Attract mode is in the Look section; the predicted lap colour starts 20 ms from your best and holds to 10 ms; INVALID shows while the game's flag is up; OUTLAP covers any lap partly in the pit lane.
+- README: shorter, in the style of the other apps; says which loader version it needs.
 - notes.md: figure alignment, centre mark, stylesheet review findings, lifecycle, the INVALID tag's rules, test setup.
 
 ### Tests
