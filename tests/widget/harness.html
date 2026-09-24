@@ -2686,6 +2686,24 @@ window.ModelTiming = { best: "", ideal: "", last: "", current: "Outlap", invalid
         set("showTrace", had);
     });
 
+    t("attract mode mixes green and red in every lap, for a recording: over ten laps each spends a fifth to four fifths of its time gaining, crosses the line at least twice, and the laps together are near half and half", function () {
+        let all = 0, allBelow = 0;
+        for (let k = 0; k < 10; k += 1) {
+            const L = B.attractLap(k);
+            let below = 0, n = 0, crossings = 0, side = 0;
+            for (let p = 0; p <= 400; p += 1) {
+                const d = B.attractDelta(L, p / 400);
+                n += 1; if (d < 0) { below += 1; }
+                const now = d < -5 ? -1 : (d > 5 ? 1 : 0);
+                if (now !== 0) { if (side !== 0 && now !== side) { crossings += 1; } side = now; }
+            }
+            ok(below / n >= 0.2 && below / n <= 0.8, "lap " + k + " is green for " + Math.round(100 * below / n) + "% of it");
+            ok(crossings >= 2, "lap " + k + " crosses the line " + crossings + " times");
+            all += n; allBelow += below;
+        }
+        ok(allBelow / all >= 0.35 && allBelow / all <= 0.65, "ten laps together: green " + Math.round(100 * allBelow / all) + "%");
+    });
+
     t("attract mode drives laps like a real session: the length their times say, measured part by part against the best lap, the delta always on the move with big swings both ways, the best improving when a lap beats it", function () {
         const lap0 = B.attractLap(0), lap1 = B.attractLap(1), lap2 = B.attractLap(2);
         const start = B.attractValues(0), mid = B.attractValues(Math.round(lap0.time / 2)), end = B.attractValues(lap0.time - 1), next = B.attractValues(lap0.time);

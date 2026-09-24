@@ -1355,52 +1355,58 @@ const BetterDeltaBar = (function () {
     const ATTRACT_LAST_BEFORE_MS = 103987;
     /**
      * The corners, as shares of the lap: where the braking starts, and how strongly this corner
-     * decides a lap time (a heavy stop weighs more than a kink), and the sector it is in.
+     * decides a lap time (a heavy stop weighs more than a kink).
      */
     const ATTRACT_CORNERS = [
-        { at: 0.055, weight: 1.3, sector: 0 }, { at: 0.12, weight: 0.7, sector: 0 }, { at: 0.165, weight: 0.6, sector: 0 },
-        { at: 0.215, weight: 0.9, sector: 0 }, { at: 0.3, weight: 1.1, sector: 1 }, { at: 0.395, weight: 0.8, sector: 1 },
-        { at: 0.49, weight: 1.2, sector: 1 }, { at: 0.575, weight: 0.5, sector: 1 }, { at: 0.635, weight: 0.5, sector: 2 },
-        { at: 0.845, weight: 1.4, sector: 2 }, { at: 0.885, weight: 0.7, sector: 2 }, { at: 0.955, weight: 0.9, sector: 2 }
+        { at: 0.055, weight: 1.3 }, { at: 0.12, weight: 0.7 }, { at: 0.165, weight: 0.6 },
+        { at: 0.215, weight: 0.9 }, { at: 0.3, weight: 1.1 }, { at: 0.395, weight: 0.8 },
+        { at: 0.49, weight: 1.2 }, { at: 0.575, weight: 0.5 }, { at: 0.635, weight: 0.5 },
+        { at: 0.845, weight: 1.4 }, { at: 0.885, weight: 0.7 }, { at: 0.955, weight: 0.9 }
     ];
+    /** The sectors a lap is timed in, for the optimal: equal thirds of the lap. */
     const ATTRACT_SECTORS = 3;
+    /** Samples across a lap for its centring, and the height of a half-wave per unit of its mean (pi / 2). */
+    const ATTRACT_CENTRE_SAMPLES = 200;
+    const ATTRACT_HUMP_MEAN_TO_PEAK = Math.PI / 2;
+    /** How much of what the delta does inside a sector counts towards that sector's time (see attractLap). */
+    const ATTRACT_SECTOR_SWING = 0.3;
     /** How long a braking zone lasts, and the corner after it, as shares of the lap (about 1.5 s and 2 s). */
     const ATTRACT_BRAKE_SHARE = 0.015;
     const ATTRACT_CORNER_SHARE = 0.02;
     /**
-     * What each part loses on a lap, ms, before the corner's weight: a share of its spread, more
-     * or less from lap to lap (braking a metre later or earlier, a wider line, the speed carried
-     * down the straight). The braking zone varies the most, the straight the least.
+     * What each part of a corner gains or loses against the best lap at most, ms, before the corner's
+     * weight: the braking zone the most (braking a metre later or earlier), the corner itself less,
+     * the straight after it a little (the speed carried out of the corner).
      */
-    const ATTRACT_BRAKE_SPREAD_MS = 80;
-    const ATTRACT_CORNER_SPREAD_MS = 55;
-    const ATTRACT_STRAIGHT_SPREAD_MS = 20;
-    /** The chance a lap has a corner gone wrong, and what it costs then, ms (not weighted: a slide is a slide). */
-    const ATTRACT_MOMENT_CHANCE = 0.8;
-    const ATTRACT_MOMENT_MIN_MS = 150;
-    const ATTRACT_MOMENT_MAX_MS = 650;
-    /** The share of a corner gone wrong that is lost on the brakes; the rest goes in the corner itself. */
-    const ATTRACT_MOMENT_BRAKE_SHARE = 0.45;
+    const ATTRACT_BRAKE_SPREAD_MS = 45;
+    const ATTRACT_CORNER_SPREAD_MS = 35;
+    const ATTRACT_STRAIGHT_SPREAD_MS = 15;
     /**
-     * The best lap the demo starts against, as if driven before it began: which corner went
-     * wrong on it and by how much. Its moment is where the first laps gain big.
+     * The chance a lap has a moment, what it is worth, ms (not weighted: a slide is a slide), and
+     * the chance it is a gain (the best lap had its moment there) rather than a loss.
      */
-    const ATTRACT_REFERENCE_LAP = -1;
-    const ATTRACT_REFERENCE_MOMENT_CORNER = 6;
-    const ATTRACT_REFERENCE_MOMENT_MS = 450;
-    /** The parts of a corner: braking, the corner itself, the straight after it. */
-    const ATTRACT_PARTS_PER_CORNER = 3;
+    const ATTRACT_MOMENT_CHANCE = 0.85;
+    const ATTRACT_MOMENT_MIN_MS = 150;
+    const ATTRACT_MOMENT_MAX_MS = 500;
+    const ATTRACT_MOMENT_GAIN_CHANCE = 0.45;
+    /** How a lap ends against the best, ms: this lean to slower, and this much either way at most. */
+    const ATTRACT_FINAL_LEAN_MS = 20;
+    const ATTRACT_FINAL_SPREAD_MS = 150;
+    /** The best lap's sectors before the demo began, ms, adding up to ATTRACT_REFERENCE_TARGET_MS. */
+    const ATTRACT_REFERENCE_SECTORS_MS = [34420, 34610, 34415];
     /**
      * The wander on top of the corners: a real delta is never still, it drifts all the way round
      * as the line, the braking and the speed carried differ from the reference's a little
      * everywhere. Made of half-waves across the lap (whole numbers of them, so it is 0 at both
-     * lines and changes no lap time), the slow ones large (the big swings of a lap), the quick
-     * ones small; each its most in ms at the default range, drawn per lap between plus and minus.
+     * lines and changes no lap time). The ones that cross the line four to eight times a lap are
+     * the largest, so a lap has green and red in it; the slowest are small, as they held a whole
+     * lap on one side. Each its most in ms at the default range, drawn per lap between plus and minus.
      */
-    const ATTRACT_WANDER_MS = [300, 220, 160, 90, 70, 55, 30, 24, 18, 14, 11, 9];
-    /** The draws of a lap: one per part, then the waver's two, then the moment's: whether, where and how much. */
-    const ATTRACT_WANDER_DRAW = ATTRACT_CORNERS.length * ATTRACT_PARTS_PER_CORNER;
+    const ATTRACT_WANDER_MS = [30, 70, 120, 160, 170, 150, 120, 90, 60, 40, 25, 15];
+    /** The draws of a lap: one per corner, then the wander's, then the moment's four (whether, where, how much, which way), then how it ends. */
+    const ATTRACT_WANDER_DRAW = ATTRACT_CORNERS.length;
     const ATTRACT_MOMENT_DRAW = ATTRACT_WANDER_DRAW + ATTRACT_WANDER_MS.length;
+    const ATTRACT_FINAL_DRAW = ATTRACT_MOMENT_DRAW + 4;
     /** A spread is the sum of two draws, each from its own slot. */
     const DRAWS_PER_SPREAD = 2;
     /** An integer hash (the multipliers of the murmur3 finaliser and the golden ratio), to a share in [0, 1). */
@@ -1411,8 +1417,6 @@ const BetterDeltaBar = (function () {
     const HASH_SHIFT_A = 15;
     const HASH_SHIFT_B = 12;
     const HASH_RANGE = 4294967296;
-    /** The hash takes a lap number of zero or more: the lap before the demo is hashed under this one. */
-    const HASH_REFERENCE_LAP = 999983;
     const TWO_PI = 2 * Math.PI;
     /** The classic smoothstep polynomial, 3k^2 - 2k^3. */
     const SMOOTHSTEP_SQUARE = 3;
@@ -1427,8 +1431,7 @@ const BetterDeltaBar = (function () {
 
     /** Draw number `n` of lap `lap`, a share in [0, 1): the same every time it is asked for. */
     const attractDraw = function (lap, n) {
-        const seed = lap === ATTRACT_REFERENCE_LAP ? HASH_REFERENCE_LAP : lap;
-        let h = Math.imul(seed + 1, HASH_GOLDEN) ^ Math.imul(n + 1, HASH_MIX_A);
+        let h = Math.imul(lap + 1, HASH_GOLDEN) ^ Math.imul(n + 1, HASH_MIX_A);
 
         h = Math.imul(h ^ (h >>> HASH_SHIFT_A), HASH_MIX_B);
         h = Math.imul(h ^ (h >>> HASH_SHIFT_B), HASH_MIX_C);
@@ -1447,110 +1450,106 @@ const BetterDeltaBar = (function () {
     };
 
     /**
-     * What lap `n` loses in each part of the track, ms, in track order (braking, corner, straight
-     * for each corner in turn), and where each part starts and ends as shares of the lap.
+     * Lap `n`'s corners: where each part of each corner starts and ends as shares of the lap, and
+     * what it gains (negative) or loses there against the best lap, ms. The braking, the corner and
+     * the straight after it go the same way, as a corner is taken well or badly as a whole (drawn
+     * apart, a gain on the brakes and a loss a second later flicked the bar there and back, which
+     * reads as a spring). On most laps one corner is a moment: a lock-up or a slide that loses, or
+     * the best lap's own moment there, which this lap gains back.
      */
-    const attractParts = function (n) {
-        const parts = [];
-        const hasMoment = n === ATTRACT_REFERENCE_LAP || attractShare(n, ATTRACT_MOMENT_DRAW) < ATTRACT_MOMENT_CHANCE;
-        const momentCorner = n === ATTRACT_REFERENCE_LAP ? ATTRACT_REFERENCE_MOMENT_CORNER
-            : Math.floor(attractShare(n, ATTRACT_MOMENT_DRAW + 1) * ATTRACT_CORNERS.length);
-        const momentMs = n === ATTRACT_REFERENCE_LAP ? ATTRACT_REFERENCE_MOMENT_MS
-            : ATTRACT_MOMENT_MIN_MS + (ATTRACT_MOMENT_MAX_MS - ATTRACT_MOMENT_MIN_MS) * attractShare(n, ATTRACT_MOMENT_DRAW + 2);
+    const attractEvents = function (n) {
+        const events = [];
+        const hasMoment = attractShare(n, ATTRACT_MOMENT_DRAW) < ATTRACT_MOMENT_CHANCE;
+        const momentCorner = Math.floor(attractShare(n, ATTRACT_MOMENT_DRAW + 1) * ATTRACT_CORNERS.length);
+        const momentSize = ATTRACT_MOMENT_MIN_MS + (ATTRACT_MOMENT_MAX_MS - ATTRACT_MOMENT_MIN_MS) * attractShare(n, ATTRACT_MOMENT_DRAW + 2);
+        const momentMs = attractShare(n, ATTRACT_MOMENT_DRAW + 3) < ATTRACT_MOMENT_GAIN_CHANCE ? -momentSize : momentSize;
 
         ATTRACT_CORNERS.forEach(function (corner, c) {
-            const base = c * ATTRACT_PARTS_PER_CORNER;
             const next = c + 1 < ATTRACT_CORNERS.length ? ATTRACT_CORNERS[c + 1].at : 1;
             const brakeEnd = corner.at + ATTRACT_BRAKE_SHARE;
             const cornerEnd = brakeEnd + ATTRACT_CORNER_SHARE;
-            // one draw for the whole corner: the braking, the corner and the straight after it go the same way, as a
-            // corner is taken well or badly as a whole. Drawn apart, a gain on the brakes and a loss in the corner a
-            // second later flicked the bar there and back, which reads as a spring (2026-09-24)
-            const how = attractMiddling(n, base);
-            const lose = function (spread) { return corner.weight * spread * how; };
-            // a corner gone wrong is felt over the braking and the corner: a tenth of a second and more a second
+            // one draw for the whole corner, -1..1, commoner near 0
+            const how = DRAWS_PER_SPREAD * attractMiddling(n, c) - 1;
+            const part = function (spread) { return corner.weight * spread * how; };
             const moment = hasMoment && c === momentCorner ? momentMs : 0;
 
-            parts.push({ from: corner.at, to: brakeEnd, ms: lose(ATTRACT_BRAKE_SPREAD_MS) + moment * ATTRACT_MOMENT_BRAKE_SHARE, sector: corner.sector });
-            parts.push({ from: brakeEnd, to: cornerEnd, ms: lose(ATTRACT_CORNER_SPREAD_MS) + moment * (1 - ATTRACT_MOMENT_BRAKE_SHARE), sector: corner.sector });
-            parts.push({ from: cornerEnd, to: Math.max(cornerEnd, next), ms: lose(ATTRACT_STRAIGHT_SPREAD_MS), sector: corner.sector });
+            // the braking and the corner as one ramp, and the straight's ramp begun while the corner is still under way:
+            // ramps laid end to end both stand still where they meet, and a wave moving the other way at that moment
+            // flicked the bar back for a fraction of a second (a spring, again)
+            events.push({ from: corner.at, to: cornerEnd, ms: part(ATTRACT_BRAKE_SPREAD_MS) + part(ATTRACT_CORNER_SPREAD_MS) + moment });
+            events.push({ from: brakeEnd, to: Math.max(cornerEnd, next), ms: part(ATTRACT_STRAIGHT_SPREAD_MS) });
         });
 
-        return parts;
-    };
-
-    /** A lap's time from its parts, and its sector times. */
-    const attractTime = function (parts) {
-        let total = 0;
-
-        parts.forEach(function (p) { total += p.ms; });
-
-        return Math.round(attractIdeal + total);
-    };
-
-    const attractSectors = function (parts) {
-        const sectors = [];
-        let i;
-
-        for (i = 0; i < ATTRACT_SECTORS; i += 1) { sectors.push(attractIdeal / ATTRACT_SECTORS); }
-
-        parts.forEach(function (p) { sectors[p.sector] += p.ms; });
-
-        return sectors;
+        return events;
     };
 
     /**
-     * Lap `k` of the script: what it loses where (its events, against the reference: this lap's
-     * part minus the reference lap's), the reference's time, its own time, its start on the
-     * demo's clock, the last lap and the optimal shown while it runs. Worked out once per lap, in
-     * order, since each lap's reference and start follow from the laps before it.
+     * Lap `k` of the script: its corners, its wander, how it ends against the best lap, the best
+     * lap's time and sectors it is measured against, its own time and sectors, its start on the
+     * demo's clock, and the last lap and optimal shown while it runs. Worked out once per lap, in
+     * order, since each lap's best and start follow from the laps before it.
      */
     const attractLaps = [];
-    /** The best lap before the demo began. */
-    let attractBefore = null;
-    /** The time of a lap with no part lost anywhere: set so the best lap the demo starts against is ATTRACT_REFERENCE_TARGET_MS. */
-    let attractIdeal = 0;
+    /** The best lap before the demo began: its time and its sectors. */
+    const attractBefore = { time: ATTRACT_REFERENCE_TARGET_MS, sectors: ATTRACT_REFERENCE_SECTORS_MS };
     /** The lap the last frame was on: the next is looked for from there, not from the first lap every frame. */
     let attractCursor = 0;
 
-    /** The lap before the demo, and with it the time of a lap with nothing lost: worked out once, on first use. */
-    const attractPlan = function () {
-        attractBefore = { parts: attractParts(ATTRACT_REFERENCE_LAP) };
-        attractIdeal = 0;
-        attractIdeal = ATTRACT_REFERENCE_TARGET_MS - attractTime(attractBefore.parts);
-        attractBefore.time = attractTime(attractBefore.parts);
-        attractBefore.sectors = attractSectors(attractBefore.parts);
-    };
-
     const attractLap = function (k) {
-        if (!attractBefore) { attractPlan(); }
-
         while (attractLaps.length <= k) {
             const n = attractLaps.length;
             const before = n > 0 ? attractLaps[n - 1] : null;
-            // the best lap so far is the reference; its parts are what this lap is measured against
+            // the best lap so far is the reference
             const reference = !before ? attractBefore : (before.own.time < before.reference.time ? before.own : before.reference);
             const bestSectors = before ? before.bestSectors : attractBefore.sectors;
-            const parts = attractParts(n);
-            const own = { parts: parts, time: attractTime(parts), sectors: attractSectors(parts) };
-            const events = parts.map(function (p, i) { return { from: p.from, to: p.to, ms: p.ms - reference.parts[i].ms }; });
+            const events = attractEvents(n);
+            let total = 0;
             let optimal = 0;
 
+            events.forEach(function (e) { total += e.ms; });
             bestSectors.forEach(function (ms) { optimal += ms; });
 
-            attractLaps.push({
-                own: own,
-                reference: reference,
+            const lap = {
                 events: events,
-                time: own.time,
+                // what the corners add up to is spread back over the lap, so they shape it without dragging it to one side
+                detrend: total,
+                // how the lap ends against the best: a little either way, a little more often slower
+                final: ATTRACT_FINAL_LEAN_MS + ATTRACT_FINAL_SPREAD_MS * (DRAWS_PER_SPREAD * attractMiddling(n, ATTRACT_FINAL_DRAW) - 1),
+                wander: ATTRACT_WANDER_MS.map(function (ms, i) { return ms * (DRAWS_PER_SPREAD * attractShare(n, ATTRACT_WANDER_DRAW + i) - 1); }),
+                reference: reference,
                 referenceMs: reference.time,
                 start: before ? before.start + before.time : 0,
                 last: before ? before.time : ATTRACT_LAST_BEFORE_MS,
-                optimal: Math.round(optimal),
-                // the best of each sector once this lap is done, for the laps after it
-                bestSectors: bestSectors.map(function (ms, i) { return Math.min(ms, own.sectors[i]); }),
-                wander: ATTRACT_WANDER_MS.map(function (ms, i) { return ms * (DRAWS_PER_SPREAD * attractShare(n, ATTRACT_WANDER_DRAW + i) - 1); })
+                optimal: Math.round(optimal)
+            };
+
+            lap.time = Math.round(reference.time + lap.final);
+
+            // Centred: what the lap does between the lines, its own ending aside, is shifted by one hump (a half-wave,
+            // 0 at both lines) so that it spends as much above the line as below it. Uncentred, a moment or a large
+            // wave held most of a lap on one side and its trace was nearly all one colour (the user, 2026-09-24)
+            lap.centre = 0;
+            let sum = 0;
+            let i;
+
+            for (i = 1; i < ATTRACT_CENTRE_SAMPLES; i += 1) { sum += attractDelta(lap, i / ATTRACT_CENTRE_SAMPLES) - lap.final * i / ATTRACT_CENTRE_SAMPLES; }
+
+            lap.centre = (sum / (ATTRACT_CENTRE_SAMPLES - 1)) * ATTRACT_HUMP_MEAN_TO_PEAK;
+
+            // the lap's own sectors: the best lap's, each with its share of how the lap ended, and part of what the
+            // delta did across it. All of it, and the best of each sector over a few laps left the optimal a second
+            // and a half under the best, which no session shows; the shares still add up to the lap time
+            const sectorEnds = [0, 1 / ATTRACT_SECTORS, 2 / ATTRACT_SECTORS, 1];
+            const sectors = reference.sectors.map(function (ms, i) {
+                const across = attractDelta(lap, sectorEnds[i + 1]) - attractDelta(lap, sectorEnds[i]);
+
+                return ms + lap.final / ATTRACT_SECTORS + ATTRACT_SECTOR_SWING * (across - lap.final / ATTRACT_SECTORS);
             });
+
+            lap.own = { time: lap.time, sectors: sectors };
+            // the best of each sector once this lap is done, for the laps after it
+            lap.bestSectors = bestSectors.map(function (ms, i) { return Math.min(ms, sectors[i]); });
+            attractLaps.push(lap);
         }
 
         return attractLaps[k];
@@ -1558,11 +1557,13 @@ const BetterDeltaBar = (function () {
 
     /**
      * The scripted delta on lap `lap` at lap share `phase` (0..1), stretched by `scale` (1 when not
-     * given): 0 at the line, the lap's whole gain or loss by the next.
+     * given): 0 at the line, the lap's own result against the best by the next. The wander crosses
+     * the line a few times a lap and the corners shape it, so a lap is green in places and red in
+     * others (built from the corners alone, each lap drifted to one side and its trace was one colour).
      */
     const attractDelta = function (lap, phase, scale) {
         const stretch = typeof scale === "number" ? scale : 1;
-        let delta = 0;
+        let delta = (lap.final - lap.detrend) * phase - lap.centre * Math.sin(phase * Math.PI);
 
         // half-wave i + 1 of the wander: sin(pi (i + 1) phase), 0 at both lines
         lap.wander.forEach(function (ms, i) { delta += ms * Math.sin(phase * Math.PI * (i + 1)); });
