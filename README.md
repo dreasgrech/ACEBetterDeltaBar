@@ -82,6 +82,10 @@ With no reference lap yet, a line above the bar counts the lap you are on ("no r
 
 **OPTIONS** in the app drawer opens the settings. Point at a setting and a line at the foot of the window says what it does. Everything you change is kept, through the HUD reload and a restart. Click a section header to fold it. Defaults in bold.
 
+<p align="center">
+<img width="782" height="526" alt="image" src="https://github.com/user-attachments/assets/c4445eca-0d39-4944-ae6d-fcd206bff457" />
+</p>
+
 **Layout**
 - *Layout*: **full** or compact.
 - *Width*: narrow, **normal** or wide.
