@@ -4,8 +4,7 @@
 
 **A delta bar for the HUD of Assetto Corsa EVO that shows whether you are gaining or losing time right now.**<br>
 
-[![Latest release](https://img.shields.io/github/v/release/dreasgrech/ACEBetterDeltaBar?style=flat-square&label=download&color=0a7)](../../releases/latest)
-[![Needs](https://img.shields.io/badge/needs-ACE_UI_App_Loader-informational?style=flat-square)](https://github.com/dreasgrech/ACEUIAppLoader)
+[![Latest release](https://img.shields.io/github/v/release/dreasgrech/ACEBetterDeltaBar?style=flat-square&label=download&color=0a7)](../../releases/latest) [![Needs](https://img.shields.io/badge/needs-ACE_UI_App_Loader-informational?style=flat-square)](https://github.com/dreasgrech/ACEUIAppLoader)
 
 </div>
 
@@ -27,8 +26,7 @@ Under the bar sit your session optimal, session best and predicted lap. The comp
 <table>
 <tr><td width="40" align="center"><h3>1</h3></td><td>
 
-Download the **`ACEBetterDeltaBar-….zip`** from the [latest release](../../releases/latest) and open it.
-Inside are two folders, `mods` and `Video`.
+Download the **`ACEBetterDeltaBar-….zip`** from the [latest release](../../releases/latest) and open it. Inside are two folders, `mods` and `Video`.
 
 </td></tr>
 <tr><td align="center"><h3>2</h3></td><td>
@@ -42,14 +40,12 @@ Press <kbd>Win</kbd> + <kbd>R</kbd>, paste this in, press <kbd>Enter</kbd>:
 </td></tr>
 <tr><td align="center"><h3>3</h3></td><td>
 
-Drag **both** folders out of the zip into that window. If Windows asks, choose to **merge**.
-Nothing to run.
+Drag **both** folders out of the zip into that window. If Windows asks, choose to **merge**. Nothing to run.
 
 </td></tr>
 </table>
 
-In the car, move your mouse to the right edge of the screen. The delta bar is listed in the
-app drawer with its own switch and an **OPTIONS** button.
+In the car, move your mouse to the right edge of the screen. The delta bar is listed in the app drawer with its own switch and an **OPTIONS** button.
 
 > [!TIP]
 > Switch the game's own delta bar off, or you have two: **Settings → Gameplay → HUD → Delta Widget → Off**.
@@ -72,23 +68,18 @@ app drawer with its own switch and an **OPTIONS** button.
 | **PIT LANE**, **OUTLAP** | A quiet grey tag on a lap that doesn't count but wasn't cut: PIT LANE in the pit lane, OUTLAP for the rest of that lap. |
 | **vs Name** | The driver the game compares you to, when it names one. |
 
-With no reference lap yet, a line above the bar counts the lap you are on ("no reference yet ·
-lap 0:34.2"), so you can see it is working. The reference is the game's own, so it changes
-when the stock bar's does.
+With no reference lap yet, a line above the bar counts the lap you are on ("no reference yet · lap 0:34.2"), so you can see it is working. The reference is the game's own, so it changes when the stock bar's does.
 
 ---
 
 ## Options
 
-**OPTIONS** in the app drawer opens the settings. Point at a setting and a line at the foot
-of the window says what it does. Everything you change is kept, through the HUD reload and a
-restart. Click a section header to fold it. Defaults in bold.
+**OPTIONS** in the app drawer opens the settings. Point at a setting and a line at the foot of the window says what it does. Everything you change is kept, through the HUD reload and a restart. Click a section header to fold it. Defaults in bold.
 
 **Layout**
 - *Layout*: **full** or compact.
 - *Width*: narrow, **normal** or wide.
-- *Faster side*: the way the bar grows for time gained: **right**, like the game's bar, or
-  left, like iRacing's.
+- *Faster side*: the way the bar grows for time gained: **right**, like the game's bar, or left, like iRacing's.
 - *Bar range*: the delta that fills the bar: 0.5 s, **1 s**, 2 s or 5 s.
 - *Decimals*: 2 or **3**.
 - *Panel scale*: 0.6 to 2.0 in steps of 0.1, default **1.0**.
@@ -101,8 +92,7 @@ restart. Click a section header to fold it. Defaults in bold.
 
 **Show**
 - *Trend chevrons* and *Lap tags*: **on**. *Hide until a reference lap*: **off**.
-- Full layout: *Session optimal*, *Session best* and *Predicted lap* **on**; *Last lap* and
-  *Lap trace* **off**.
+- Full layout: *Session optimal*, *Session best* and *Predicted lap* **on**; *Last lap* and *Lap trace* **off**.
 - Compact layout: *Figure follows the fill*, **on**. Off keeps the tag centred.
 
 **Look** (folded by default)
@@ -118,12 +108,9 @@ restart. Click a section header to fold it. Defaults in bold.
 <details>
 <summary><b>It isn't in the app drawer</b></summary><br>
 
-1. **The loader isn't installed**, or its drawer doesn't appear at all. Start with the
-   [loader's own help](https://github.com/dreasgrech/ACEUIAppLoader#if-something-isnt-right).
-2. **The loader is older than 0.26.0.** Update it from its
-   [latest release](https://github.com/dreasgrech/ACEUIAppLoader/releases/latest).
-3. **Only one of the two folders was copied.** The app needs both: the folder under `mods`
-   and the small file under `Video`. That file must stay completely empty.
+1. **The loader isn't installed**, or its drawer doesn't appear at all. Start with the [loader's own help](https://github.com/dreasgrech/ACEUIAppLoader#if-something-isnt-right).
+2. **The loader is older than 0.26.0.** Update it from its [latest release](https://github.com/dreasgrech/ACEUIAppLoader/releases/latest).
+3. **Only one of the two folders was copied.** The app needs both: the folder under `mods` and the small file under `Video`. That file must stay completely empty.
 
 </details>
 
@@ -137,17 +124,14 @@ The game has no lap to compare against yet. Drive a full lap first.
 <details>
 <summary><b>The lap trace stays empty</b></summary><br>
 
-The trace needs the car's position along the lap, which the game reports in most modes. If
-it never fills, switch *Lap trace* off and open an [issue](../../issues) saying which mode
-and track you were in.
+The trace needs the car's position along the lap, which the game reports in most modes. If it never fills, switch *Lap trace* off and open an [issue](../../issues) saying which mode and track you were in.
 
 </details>
 
 <details>
 <summary><b>Anything else</b></summary><br>
 
-Open an [issue](../../issues) and say what you saw. If you can, attach the newest file from
-`%USERPROFILE%\Saved Games\ACE\Logs`.
+Open an [issue](../../issues) and say what you saw. If you can, attach the newest file from `%USERPROFILE%\Saved Games\ACE\Logs`.
 
 </details>
 
@@ -155,9 +139,7 @@ Open an [issue](../../issues) and say what you saw. If you can, attach the newes
 
 ## Uninstalling
 
-Delete the folder `mods\uiresources\ACEUIAppLoader\betterdeltabar` and the file
-`Video\ACEUIAppLoader-betterdeltabar.settingspreset`, both under `Saved Games\ACE`. Your
-settings stay in the game's UI settings file, where the game ignores them.
+Delete the folder `mods\uiresources\ACEUIAppLoader\betterdeltabar` and the file `Video\ACEUIAppLoader-betterdeltabar.settingspreset`, both under `Saved Games\ACE`. Your settings stay in the game's UI settings file, where the game ignores them.
 
 ---
 
