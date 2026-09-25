@@ -2,7 +2,7 @@
 
 ## 0.2.0 — 2026-09-24
 
-Needs ACE UI App Loader 0.26.0.
+First public release. Needs ACE UI App Loader 0.26.0.
 
 ### Look
 - Centre mark on the bar in both layouts; the compact bar had none.
@@ -38,10 +38,10 @@ Needs ACE UI App Loader 0.26.0.
 - notes.md: figure alignment, centre mark, stylesheet review findings, lifecycle, the INVALID tag's rules, test setup.
 
 ### Tests
-- Widget harness now 147 cases, plus a replay harness (five sessions recorded in game, replayed with reloads, jitter and dropped frames) and a fuzz harness (five seeds of 12,000 random frames).
+- Widget harness now 153 cases, plus a replay harness (five sessions recorded in game, replayed with reloads, jitter and dropped frames) and a fuzz harness (five seeds of 12,000 random frames).
 - `tools/extract_replay.py` and `tools/make_replay_harness.py`, with tests for every recorder line format.
 - The preview reads the focused car from the cars-on-track model and raises the flag with the cut notice.
 
 ## 0.1.0 — 2026-09-23
 
-First public release.
+Not published.
