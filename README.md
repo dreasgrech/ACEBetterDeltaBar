@@ -25,6 +25,8 @@ Under the bar sit your session optimal, session best and predicted lap. The comp
 <img width="1212" height="258" alt="delta3_H_nat_50_96" src="https://github.com/user-attachments/assets/0881b8be-0a9a-4bfc-9377-6a47393c886d" />
 </p>
 
+The two different layouts available (compact and full) are inspired by iRacing and RaceLab respectively.
+
 ---
 
 ## Installing the ACEBetterDeltaBar app
